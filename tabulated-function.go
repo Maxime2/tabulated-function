@@ -92,11 +92,15 @@ func (f *TabulatedFunction) update_spline() {
 			f.iymax = f.Y[i]
 		}
 	}
-	f.istep = f.X[1] - f.X[0]
-	for i = 2; i <= j; j++ {
-		if (f.X[i] - f.X[i-1]) < f.istep {
-			f.istep = f.X[i] - f.X[i-1]
+	if j > 0 {
+		f.istep = f.X[1] - f.X[0]
+		for i = 2; i <= j; j++ {
+			if (f.X[i] - f.X[i-1]) < f.istep {
+				f.istep = f.X[i] - f.X[i-1]
+			}
 		}
+	} else {
+		f.istep = 0
 	}
 	for i = 0; i <= j; i++ {
 		f.b[i] = 0
