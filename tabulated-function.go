@@ -27,6 +27,11 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	var i, j, k int
 	var r float64
 
+	i = 0
+	j = len(f.X) - 1
+	if j < i {
+		return math.NaN()
+	}
 	if f.changed {
 		f.update_spline()
 	}
@@ -35,11 +40,6 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	}
 	if xi < f.xmin {
 		return 0
-	}
-	i = 0
-	j = len(f.X) - 1
-	if j < i {
-		return math.NaN()
 	}
 	k = 0
 	for j >= i {
