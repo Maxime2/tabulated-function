@@ -1,6 +1,8 @@
 package tabulatedfunction
 
-import "math"
+import (
+	"math"
+)
 
 type TabulatedFunction struct {
 	ixmin, ixmax, iymin, iymax float64
@@ -175,7 +177,12 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64) {
 	}
 	for i = 0; i < l && f.X[i] < Xn; i++ {
 	}
-	if i < l && f.X[i] == Xn {
+	if i == l {
+		f.X = append(f.X, Xn)
+		f.Y = append(f.Y, Yn)
+		return
+	}
+	if f.X[i] == Xn {
 		f.X[i] = Xn
 		f.Y[i] = (f.Y[i] + Yn) / 2
 		return
