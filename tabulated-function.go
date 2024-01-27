@@ -164,6 +164,11 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64) {
 	var i, k, l int
 	f.changed = true
 	l = len(f.X)
+	if l == 0 {
+		f.X = append(f.X, Xn)
+		f.Y = append(f.Y, Yn)
+		return
+	}
 	for i = 0; f.X[i] < Xn; i++ {
 	}
 	if f.X[i] == Xn {
