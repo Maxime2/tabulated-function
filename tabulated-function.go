@@ -11,9 +11,7 @@ type TabulatedFunction struct {
 	iOrder                     int
 	changed                    bool
 	//
-	X, Y       []float64
-	xmin, xmax float64
-	ymin, ymax float64
+	X, Y []float64
 }
 
 // Create
@@ -37,10 +35,10 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	if f.changed {
 		f.update_spline()
 	}
-	if xi > f.xmax {
+	if xi > f.ixmax {
 		return 0
 	}
-	if xi < f.xmin {
+	if xi < f.ixmin {
 		return 0
 	}
 	k = 0
@@ -78,8 +76,8 @@ func (f *TabulatedFunction) update_spline() {
 	f.d = make([]float64, i)
 	f.ixmin = f.X[0]
 	f.ixmax = f.ixmin
-	f.ymin = f.Y[0]
-	f.ymax = f.ymin
+	f.iymin = f.Y[0]
+	f.iymax = f.iymin
 	for i = 1; i <= j; i++ {
 		if f.X[i] < f.ixmin {
 			f.ixmin = f.X[i]
@@ -96,7 +94,7 @@ func (f *TabulatedFunction) update_spline() {
 	}
 	if j > 0 {
 		f.istep = f.X[1] - f.X[0]
-		for i = 2; i <= j; j++ {
+		for i = 2; i <= j; i++ {
 			if (f.X[i] - f.X[i-1]) < f.istep {
 				f.istep = f.X[i] - f.X[i-1]
 			}
@@ -218,7 +216,7 @@ func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 func (f *TabulatedFunction) Normalise() {
 	var i int
 	var ym float64
-	ym = math.Max(math.Abs(f.ymax), math.Abs(f.ymin))
+	ym = math.Max(math.Abs(f.iymax), math.Abs(f.iymin))
 
 	for i = range f.Y {
 		f.Y[i] /= ym
