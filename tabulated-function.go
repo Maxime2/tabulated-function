@@ -173,9 +173,9 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64) {
 		f.Y = append(f.Y, Yn)
 		return
 	}
-	for i = 0; f.X[i] < Xn; i++ {
+	for i = 0; i < l && f.X[i] < Xn; i++ {
 	}
-	if f.X[i] == Xn {
+	if i < l && f.X[i] == Xn {
 		f.X[i] = Xn
 		f.Y[i] = (f.Y[i] + Yn) / 2
 		return
