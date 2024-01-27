@@ -4,12 +4,15 @@ import (
 	"testing"
 )
 
-func AddPoint_test(t *testing.T) {
+func TestAddPoint(t *testing.T) {
 	direct := New()
 	direct.SetOrder(1)
 
-	direct.AddPoint(2.0494472732002826, 0.1)
-	direct.AddPoint(1.156694013301916, 0.5)
-	direct.AddPoint(0.46530775203579466, 0.1)
-
+	direct.AddPoint(-0.3388588053705943, 0.1)
+	direct.AddPoint(1.319795729531707, 0.1)
+	direct.AddPoint(0.3850489958660157, 0.5)
+	y := direct.F(-1.0666666666666695)
+	t.Logf("  y = %v", y)
+	y = direct.F(0.3850489958660157)
+	t.Logf("  y = %v", y)
 }
