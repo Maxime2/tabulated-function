@@ -36,10 +36,10 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 		f.update_spline()
 	}
 	if xi > f.ixmax {
-		return 0
+		return f.Y[j]
 	}
 	if xi < f.ixmin {
-		return 0
+		return f.Y[0]
 	}
 	k = 0
 	for j >= i {
