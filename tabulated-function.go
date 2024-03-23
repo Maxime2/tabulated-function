@@ -1,6 +1,7 @@
 package tabulatedfunction
 
 import (
+	"fmt"
 	"math"
 )
 
@@ -427,4 +428,18 @@ func (f *TabulatedFunction) GetYmax() float64 {
 		f.update_spline()
 	}
 	return f.iymax
+}
+
+func (f *TabulatedFunction) String() string {
+	s := "\nTabulated function:\n"
+	s = fmt.Sprintf("%s\tiOrder: %v; changed: %v\n", s, f.iOrder, f.changed)
+	s = fmt.Sprintf("%s\tixmin: %v; ixmax: %v\n", s, f.ixmin, f.ixmax)
+	s = fmt.Sprintf("%s\tiymin: %v; iymax: %v\n", s, f.iymin, f.iymax)
+	s = fmt.Sprintf("%s\tistep: %v\n", s, f.istep)
+	s = fmt.Sprintf("%s\tb: %v\n", s, f.b)
+	s = fmt.Sprintf("%s\tc: %v\n", s, f.c)
+	s = fmt.Sprintf("%s\td: %v\n", s, f.d)
+	s = fmt.Sprintf("%s\tX: %v\n", s, f.X);
+	s = fmt.Sprintf("%s\tY: %v\n", s, f.Y);
+	return s
 }
