@@ -430,6 +430,10 @@ func (f *TabulatedFunction) GetYmax() float64 {
 	return f.iymax
 }
 
+func (f *TabulatedFunction) GetNdots() int {
+	return len(f.X)
+}
+
 func (f *TabulatedFunction) String() string {
 	s := "\nTabulated function:\n"
 	s = fmt.Sprintf("%s\tiOrder: %v; changed: %v\n", s, f.iOrder, f.changed)

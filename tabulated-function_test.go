@@ -21,5 +21,6 @@ func TestAddPoint(t *testing.T) {
 	t.Logf("  y = %v", y)
 	y = direct.F(0.3850489958660157)
 	t.Logf("  y = %v\n", y)
+	t.Logf("  number of dots: %v\n", direct.GetNdots())
 	t.Logf("%v\n", direct)
 }
