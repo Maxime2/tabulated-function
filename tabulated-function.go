@@ -166,14 +166,18 @@ func (f *TabulatedFunction) SetOrder(new_value int) {
 	f.changed = true
 }
 
-func (f *TabulatedFunction) AddPoint(Xn, Yn float64) {
+func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args... int64) {
 	var i, k, l int
+	var cnt int64 = 1
+	if len(args) > 0 {
+		cnt = args[0]
+	}
 	f.changed = true
 	l = len(f.X)
 	if l == 0 {
 		f.X = append(f.X, Xn)
 		f.Y = append(f.Y, Yn)
-		f.Cnt = append(f.Cnt, 1)
+		f.Cnt = append(f.Cnt, cnt)
 		return
 	}
 	for i = 0; i < l && f.X[i] < Xn; i++ {
@@ -181,13 +185,13 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64) {
 	if i == l {
 		f.X = append(f.X, Xn)
 		f.Y = append(f.Y, Yn)
-		f.Cnt = append(f.Cnt, 1)
+		f.Cnt = append(f.Cnt, cnt)
 		return
 	}
 	if f.X[i] == Xn {
 		f.X[i] = Xn
 		f.Y[i] = (float64(f.Cnt[i])*f.Y[i] + Yn)
-		f.Cnt[i]++
+		f.Cnt[i] += cnt
 		f.Y[i] /= float64(f.Cnt[i])
 		return
 	}
@@ -200,7 +204,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64) {
 	f.Y[i] = Yn
 	f.Cnt = append(f.Cnt, f.Cnt[k])
 	copy(f.Cnt[i+1:], f.Cnt[i:k])
-	f.Cnt[i] = 1
+	f.Cnt[i] = cnt
 }
 
 func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
