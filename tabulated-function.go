@@ -13,6 +13,7 @@ type TabulatedFunction struct {
 	changed                    bool
 	//
 	X, Y []float64
+	Cnt  []int64
 }
 
 // Create
@@ -172,6 +173,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64) {
 	if l == 0 {
 		f.X = append(f.X, Xn)
 		f.Y = append(f.Y, Yn)
+		f.Cnt = append(f.Cnt, 1)
 		return
 	}
 	for i = 0; i < l && f.X[i] < Xn; i++ {
@@ -179,11 +181,14 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64) {
 	if i == l {
 		f.X = append(f.X, Xn)
 		f.Y = append(f.Y, Yn)
+		f.Cnt = append(f.Cnt, 1)
 		return
 	}
 	if f.X[i] == Xn {
 		f.X[i] = Xn
-		f.Y[i] = (f.Y[i] + Yn) / 2
+		f.Y[i] = (float64(f.Cnt[i])*f.Y[i] + Yn)
+		f.Cnt[i]++
+		f.Y[i] /= float64(f.Cnt[i])
 		return
 	}
 	k = l - 1
@@ -193,11 +198,15 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64) {
 	f.Y = append(f.Y, f.Y[k])
 	copy(f.Y[i+1:], f.Y[i:k])
 	f.Y[i] = Yn
+	f.Cnt = append(f.Cnt, f.Cnt[k])
+	copy(f.Cnt[i+1:], f.Cnt[i:k])
+	f.Cnt[i] = 1
 }
 
 func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 	f.X = make([]float64, 1)
 	f.Y = make([]float64, 1)
+	f.Cnt = make([]int64, 1)
 	f.b = make([]float64, 1)
 	f.c = make([]float64, 1)
 	f.d = make([]float64, 1)
@@ -207,6 +216,7 @@ func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 	f.iymax = f.iymin
 	f.X[0] = f.ixmin
 	f.Y[0] = f.iymin
+	f.Cnt[0] = 1
 	f.b[0] = 0
 	f.c[0] = 0
 	f.d[0] = 0
@@ -216,8 +226,7 @@ func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 
 func (f *TabulatedFunction) Normalise() {
 	var i int
-	var ym float64
-	ym = math.Max(math.Abs(f.iymax), math.Abs(f.iymin))
+	var ym float64 = math.Max(math.Abs(f.iymax), math.Abs(f.iymin))
 
 	for i = range f.Y {
 		f.Y[i] /= ym
@@ -271,6 +280,7 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 
 	f.X = append([]float64{}, s.X...)
 	f.Y = append([]float64{}, s.Y...)
+	f.Cnt = append([]int64{}, s.Cnt...)
 	f.b = append([]float64{}, s.b...)
 	f.c = append([]float64{}, s.c...)
 	f.d = append([]float64{}, s.d...)
@@ -296,6 +306,7 @@ func (f *TabulatedFunction) Integrate() float64 {
 func (f *TabulatedFunction) Clear() {
 	f.X = make([]float64, 0)
 	f.Y = make([]float64, 0)
+	f.Cnt = make([]int64, 0)
 	f.b = make([]float64, 0)
 	f.c = make([]float64, 0)
 	f.d = make([]float64, 0)
@@ -326,6 +337,7 @@ func (f *TabulatedFunction) MorePoints() {
 
 	f.X = append(f.X, make([]float64, j+1)...)
 	f.Y = append(f.Y, make([]float64, j+1)...)
+	f.Cnt = append(f.Cnt, make([]int64, j+1)...)
 
 	for k = j; k >= 1; k-- {
 		f.X[i] = f.X[k]
@@ -443,7 +455,8 @@ func (f *TabulatedFunction) String() string {
 	s = fmt.Sprintf("%s\tb: %v\n", s, f.b)
 	s = fmt.Sprintf("%s\tc: %v\n", s, f.c)
 	s = fmt.Sprintf("%s\td: %v\n", s, f.d)
-	s = fmt.Sprintf("%s\tX: %v\n", s, f.X);
-	s = fmt.Sprintf("%s\tY: %v\n", s, f.Y);
+	s = fmt.Sprintf("%s\tX: %v\n", s, f.X)
+	s = fmt.Sprintf("%s\tY: %v\n", s, f.Y)
+	s = fmt.Sprintf("%s\tCnt: %v\n", s, f.Cnt)
 	return s
 }
