@@ -187,7 +187,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args ...int64) {
 		f.Y[i] = (float64(f.Cnt[i])*f.Y[i] + Yn)
 		f.Cnt[i] += cnt
 		f.Y[i] /= float64(f.Cnt[i])
-
+		return
 	}
 	if i == l {
 		f.X = append(f.X, Xn)
