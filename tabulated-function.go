@@ -3,6 +3,7 @@ package tabulatedfunction
 import (
 	"fmt"
 	"math"
+	"slices"
 )
 
 type TabulatedFunction struct {
@@ -166,7 +167,7 @@ func (f *TabulatedFunction) SetOrder(new_value int) {
 	f.changed = true
 }
 
-func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args... int64) {
+func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args ...int64) {
 	var i, k, l int
 	var cnt int64 = 1
 	if len(args) > 0 {
@@ -180,19 +181,18 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args... int64) {
 		f.Cnt = append(f.Cnt, cnt)
 		return
 	}
-	for i = 0; i < l && f.X[i] < Xn; i++ {
+	i, found := slices.BinarySearch(f.X, Xn)
+	if found {
+		f.X[i] = Xn
+		f.Y[i] = (float64(f.Cnt[i])*f.Y[i] + Yn)
+		f.Cnt[i] += cnt
+		f.Y[i] /= float64(f.Cnt[i])
+
 	}
 	if i == l {
 		f.X = append(f.X, Xn)
 		f.Y = append(f.Y, Yn)
 		f.Cnt = append(f.Cnt, cnt)
-		return
-	}
-	if f.X[i] == Xn {
-		f.X[i] = Xn
-		f.Y[i] = (float64(f.Cnt[i])*f.Y[i] + Yn)
-		f.Cnt[i] += cnt
-		f.Y[i] /= float64(f.Cnt[i])
 		return
 	}
 	k = l - 1

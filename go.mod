@@ -1,6 +1,6 @@
 module github.com/Maxime2/tabulated-function
 
-go 1.19
+go 1.21
 
 require (
 	github.com/kylelemons/godebug v1.1.0
