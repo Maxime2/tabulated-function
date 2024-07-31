@@ -27,41 +27,16 @@ func New() *TabulatedFunction {
 
 // splinevalue
 func (f *TabulatedFunction) F(xi float64) float64 {
-	var i, j, k int
+	var k int
 	var r float64
 
-	i = 0
-	j = len(f.X) - 1
-	if j < i {
+	if 1 > len(f.X) {
 		return math.NaN()
 	}
-	if f.changed {
-		f.update_spline()
+	k, found := slices.BinarySearch(f.X, xi)
+	if found {
+		return f.Y[k]
 	}
-	if xi > f.ixmax {
-		return f.Y[j]
-	}
-	if xi < f.ixmin {
-		return f.Y[0]
-	}
-	k = 0
-	for j >= i {
-		k = (i + j) >> 1
-		if xi < f.X[k] {
-			j = k - 1
-		} else if xi > f.X[k] {
-			i = k + 1
-		} else {
-			goto found
-		}
-	}
-	if xi < f.X[k] {
-		k--
-	}
-	if k < 0 {
-		return f.Y[0]
-	}
-found:
 	r = xi - f.X[k]
 	return f.Y[k] + r*(f.b[k]+r*(f.c[k]+r*f.d[k]))
 }
