@@ -30,9 +30,6 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	var k, l int
 	var r float64
 
-	if f.changed {
-		f.update_spline()
-	}
 	l = len(f.X)
 	if 1 > l {
 		return math.NaN()
@@ -43,6 +40,18 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	}
 	if k == l {
 		return f.Y[l-1]
+	}
+	if k == 0 {
+		return f.Y[0]
+	}
+	switch f.iOrder {
+	case 0:
+		return f.Y[k-1]
+	case 1:
+		return f.Y[k-1] + (f.Y[k]-f.Y[k-1])*(xi-f.X[k-1]/(f.X[k]-f.X[k-1]))
+	}
+	if f.changed {
+		f.update_spline()
 	}
 	r = xi - f.X[k]
 	return f.Y[k] + r*(f.b[k]+r*(f.c[k]+r*f.d[k]))
