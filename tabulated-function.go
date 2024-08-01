@@ -159,7 +159,7 @@ func (f *TabulatedFunction) SetOrder(new_value int) {
 }
 
 func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args ...int64) {
-	var i, k, l int
+	var i, l int
 	var cnt int64 = 1
 	if len(args) > 0 {
 		cnt = args[0]
@@ -186,16 +186,9 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args ...int64) {
 		f.Cnt = append(f.Cnt, cnt)
 		return
 	}
-	k = l - 1
-	f.X = append(f.X, f.X[k])
-	copy(f.X[i+1:], f.X[i:k])
-	f.X[i] = Xn
-	f.Y = append(f.Y, f.Y[k])
-	copy(f.Y[i+1:], f.Y[i:k])
-	f.Y[i] = Yn
-	f.Cnt = append(f.Cnt, f.Cnt[k])
-	copy(f.Cnt[i+1:], f.Cnt[i:k])
-	f.Cnt[i] = cnt
+	f.X = slices.Insert(f.X, i, Xn)
+	f.Y = slices.Insert(f.Y, i, Yn)
+	f.Cnt = slices.Insert(f.Cnt, i, cnt)
 }
 
 func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
