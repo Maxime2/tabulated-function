@@ -48,7 +48,7 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	case 0:
 		return f.Y[k-1]
 	case 1:
-		return f.Y[k-1] + (f.Y[k]-f.Y[k-1])*(xi-f.X[k-1]/(f.X[k]-f.X[k-1]))
+		return f.Y[k-1] + (f.Y[k]-f.Y[k-1])*(xi-f.X[k-1])/(f.X[k]-f.X[k-1])
 	}
 	if f.changed {
 		f.update_spline()
