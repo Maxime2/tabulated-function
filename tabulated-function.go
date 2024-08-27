@@ -158,7 +158,7 @@ func (f *TabulatedFunction) SetOrder(new_value int) {
 	f.changed = true
 }
 
-func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args ...int64) {
+func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args ...int64) float64 {
 	var i, l int
 	var cnt int64 = 1
 	if len(args) > 0 {
@@ -170,7 +170,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args ...int64) {
 		f.X = append(f.X, Xn)
 		f.Y = append(f.Y, Yn)
 		f.Cnt = append(f.Cnt, cnt)
-		return
+		return Yn
 	}
 	i, found := slices.BinarySearch(f.X, Xn)
 	if found {
@@ -178,17 +178,18 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args ...int64) {
 		f.Y[i] = (float64(f.Cnt[i])*f.Y[i] + Yn)
 		f.Cnt[i] += cnt
 		f.Y[i] /= float64(f.Cnt[i])
-		return
+		return f.Y[i]
 	}
 	if i == l {
 		f.X = append(f.X, Xn)
 		f.Y = append(f.Y, Yn)
 		f.Cnt = append(f.Cnt, cnt)
-		return
+		return Yn
 	}
 	f.X = slices.Insert(f.X, i, Xn)
 	f.Y = slices.Insert(f.Y, i, Yn)
 	f.Cnt = slices.Insert(f.Cnt, i, cnt)
+	return Yn
 }
 
 func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
