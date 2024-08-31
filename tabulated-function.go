@@ -1,20 +1,26 @@
 package tabulatedfunction
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
 )
 
+type TFPoint struct {
+	b, c, d float64
+	X, Y    float64
+	Cnt     uint64
+	epoch   uint32
+}
+
 type TabulatedFunction struct {
 	ixmin, ixmax, iymin, iymax float64
-	b, c, d                    []float64
 	istep                      float64
 	iOrder                     int
 	changed                    bool
 	//
-	X, Y []float64
-	Cnt  []int64
+	P []TFPoint
 }
 
 // Create
@@ -30,31 +36,33 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	var k, l int
 	var r float64
 
-	l = len(f.X)
+	l = len(f.P)
 	if 1 > l {
 		return math.NaN()
 	}
-	k, found := slices.BinarySearch(f.X, xi)
+	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
+		return cmp.Compare(a.X, b.X)
+	})
 	if found {
-		return f.Y[k]
+		return f.P[k].Y
 	}
 	if k == l {
-		return f.Y[l-1]
+		return f.P[l-1].Y
 	}
 	if k == 0 {
-		return f.Y[0]
+		return f.P[0].Y
 	}
 	switch f.iOrder {
 	case 0:
-		return f.Y[k-1]
+		return f.P[k-1].Y
 	case 1:
-		return f.Y[k-1] + (f.Y[k]-f.Y[k-1])*(xi-f.X[k-1])/(f.X[k]-f.X[k-1])
+		return f.P[k-1].Y + (f.P[k].Y-f.P[k-1].Y)*(xi-f.P[k-1].X)/(f.P[k].X-f.P[k-1].X)
 	}
 	if f.changed {
 		f.update_spline()
 	}
-	r = xi - f.X[k]
-	return f.Y[k] + r*(f.b[k]+r*(f.c[k]+r*f.d[k]))
+	r = xi - f.P[k].X
+	return f.P[k].Y + r*(f.P[k].b+r*(f.P[k].c+r*f.P[k].d))
 }
 
 func (f *TabulatedFunction) update_spline() {
@@ -63,69 +71,65 @@ func (f *TabulatedFunction) update_spline() {
 	var det, x1, x2, y1, y2 float64
 
 	f.changed = false
-	i = len(f.X)
+	i = len(f.P)
 	j = i - 1
-	f.b = make([]float64, i)
-	f.c = make([]float64, i)
-	f.d = make([]float64, i)
-	f.ixmin = f.X[0]
+	f.ixmin = f.P[0].X
 	f.ixmax = f.ixmin
-	f.iymin = f.Y[0]
+	f.iymin = f.P[0].Y
 	f.iymax = f.iymin
 	for i = 1; i <= j; i++ {
-		if f.X[i] < f.ixmin {
-			f.ixmin = f.X[i]
+		if f.P[i].X < f.ixmin {
+			f.ixmin = f.P[i].X
+		} else if f.P[i].X > f.ixmax {
+			f.ixmax = f.P[i].X
 		}
-		if f.X[i] > f.ixmax {
-			f.ixmax = f.X[i]
+		if f.P[i].Y < f.iymin {
+			f.iymin = f.P[i].Y
 		}
-		if f.Y[i] < f.iymin {
-			f.iymin = f.Y[i]
-		}
-		if f.Y[i] > f.iymax {
-			f.iymax = f.Y[i]
+		if f.P[i].Y > f.iymax {
+			f.iymax = f.P[i].Y
 		}
 	}
 	if j > 0 {
-		f.istep = f.X[1] - f.X[0]
+		f.istep = f.P[1].X - f.P[0].X
 		for i = 2; i <= j; i++ {
-			if (f.X[i] - f.X[i-1]) < f.istep {
-				f.istep = f.X[i] - f.X[i-1]
+			if (f.P[i].X - f.P[i-1].X) < f.istep {
+				f.istep = f.P[i].X - f.P[i-1].X
 			}
 		}
 	} else {
 		f.istep = 0
 	}
 	for i = 0; i <= j; i++ {
-		f.b[i] = 0
-		f.c[i] = 0
-		f.d[i] = 0
+		f.P[i].b = 0
+		f.P[i].c = 0
+		f.P[i].d = 0
 	}
 	if f.iOrder == 0 {
 		return
 	}
 	h = make([]float64, j+1)
 	for i = 0; i <= j-1; i++ {
-		h[i] = f.X[i+1] - f.X[i]
+		h[i] = f.P[i+1].X - f.P[i].X
 	}
 	if f.iOrder == 1 {
 		for i = 0; i <= j-1; i++ {
-			f.b[i] = (f.Y[i+1] - f.Y[i]) / h[i]
+			f.P[i].b = (f.P[i+1].Y - f.P[i].Y) / h[i]
 		}
 		return
 	}
 	if f.iOrder == 2 {
 		for i = 0; i <= j-2; i++ {
-			x1 = f.X[i+1] - f.X[i]
-			x2 = f.X[i+2] - f.X[i]
-			y1 = f.Y[i+1] - f.Y[i]
-			y2 = f.Y[i+2] - f.Y[i]
+			x1 = f.P[i+1].X - f.P[i].X
+			x2 = f.P[i+2].X - f.P[i].X
+			y1 = f.P[i+1].Y - f.P[i].Y
+			y2 = f.P[i+2].Y - f.P[i].Y
 			det = x1 * x2 * (x2 - x1)
 			det = 1 / det
-			f.b[i] = (y1*x2*x2 - y2*x1*x1) * det
-			f.c[i] = (y2*x1 - y1*x2) * det
+			f.P[i].b = (y1*x2*x2 - y2*x1*x1) * det
+			f.P[i].c = (y2*x1 - y1*x2) * det
 		}
-		f.b[j-1] = (f.Y[j] - f.Y[j-1]) / h[i]
+		f.P[j-1].b = (f.P[j].Y - f.P[j-1].Y) / h[i]
 		return
 	}
 	alpha = make([]float64, j+1)
@@ -133,23 +137,23 @@ func (f *TabulatedFunction) update_spline() {
 	mu = make([]float64, j+1)
 	z = make([]float64, j+1)
 	for i = 1; i <= j-1; i++ {
-		alpha[i] = 3/h[i]*(f.Y[i+1]-f.Y[i]) - 3/h[i-1]*(f.Y[i]-f.Y[i-1])
+		alpha[i] = 3/h[i]*(f.P[i+1].Y-f.P[i].Y) - 3/h[i-1]*(f.P[i].Y-f.P[i-1].Y)
 	}
 	l[0] = 1
 	mu[0] = 0
 	z[0] = 0
 	for i = 1; i <= j-1; i++ {
-		l[i] = 2*(f.X[i+1]-f.X[i-1]) - h[i-1]*mu[i-1]
+		l[i] = 2*(f.P[i+1].X-f.P[i-1].X) - h[i-1]*mu[i-1]
 		mu[i] = h[i] / l[i]
 		z[i] = (alpha[i] - h[i-1]*z[i-1]) / l[i]
 	}
 	l[j] = 1
 	z[j] = 0
-	f.c[j] = 0
+	f.P[j].c = 0
 	for i = j - 1; i >= 0; i-- {
-		f.c[i] = z[i] - mu[i]*f.c[i+1]
-		f.b[i] = (f.Y[i+1]-f.Y[i])/h[i] - h[i]*(f.c[i+1]+2*f.c[i])/3
-		f.d[i] = (f.c[i+1] - f.c[i]) / 3 / h[i]
+		f.P[i].c = z[i] - mu[i]*f.P[i+1].c
+		f.P[i].b = (f.P[i+1].Y-f.P[i].Y)/h[i] - h[i]*(f.P[i+1].c+2*f.P[i].c)/3
+		f.P[i].d = (f.P[i+1].c - f.P[i].c) / 3 / h[i]
 	}
 }
 
@@ -158,57 +162,48 @@ func (f *TabulatedFunction) SetOrder(new_value int) {
 	f.changed = true
 }
 
-func (f *TabulatedFunction) AddPoint(Xn, Yn float64, args ...int64) float64 {
+func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32, args ...uint64) float64 {
 	var i, l int
-	var cnt int64 = 1
+	var cnt uint64 = 1
 	if len(args) > 0 {
 		cnt = args[0]
 	}
 	f.changed = true
-	l = len(f.X)
+	l = len(f.P)
 	if l == 0 {
-		f.X = append(f.X, Xn)
-		f.Y = append(f.Y, Yn)
-		f.Cnt = append(f.Cnt, cnt)
+		f.P = append(f.P, TFPoint{X: Xn, Y: Yn, Cnt: cnt, epoch: epoch})
 		return Yn
 	}
-	i, found := slices.BinarySearch(f.X, Xn)
+	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
+		return cmp.Compare(a.X, b.X)
+	})
 	if found {
-		f.X[i] = Xn
-		f.Y[i] = (float64(f.Cnt[i])*f.Y[i] + Yn)
-		f.Cnt[i] += cnt
-		f.Y[i] /= float64(f.Cnt[i])
-		return f.Y[i]
+		//f.P[i].X = Xn
+		if f.P[i].epoch < epoch {
+			f.P[i].Y = Yn
+			f.P[i].Cnt = 1
+			f.P[i].epoch = epoch
+			return Yn
+		}
+		f.P[i].Y = (float64(f.P[i].Cnt)*f.P[i].Y + Yn)
+		f.P[i].Cnt += cnt
+		f.P[i].Y /= float64(f.P[i].Cnt)
+		return f.P[i].Y
 	}
 	if i == l {
-		f.X = append(f.X, Xn)
-		f.Y = append(f.Y, Yn)
-		f.Cnt = append(f.Cnt, cnt)
+		f.P = append(f.P, TFPoint{X: Xn, Y: Yn, Cnt: cnt, epoch: epoch})
 		return Yn
 	}
-	f.X = slices.Insert(f.X, i, Xn)
-	f.Y = slices.Insert(f.Y, i, Yn)
-	f.Cnt = slices.Insert(f.Cnt, i, cnt)
+	f.P = slices.Insert(f.P, i, TFPoint{X: Xn, Y: Yn, Cnt: cnt, epoch: epoch})
 	return Yn
 }
 
 func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
-	f.X = make([]float64, 1)
-	f.Y = make([]float64, 1)
-	f.Cnt = make([]int64, 1)
-	f.b = make([]float64, 1)
-	f.c = make([]float64, 1)
-	f.d = make([]float64, 1)
 	f.ixmin = new_xmin
 	f.ixmax = new_xmax
 	f.iymin = new_Y
 	f.iymax = f.iymin
-	f.X[0] = f.ixmin
-	f.Y[0] = f.iymin
-	f.Cnt[0] = 1
-	f.b[0] = 0
-	f.c[0] = 0
-	f.d[0] = 0
+	f.P = append([]TFPoint{}, TFPoint{X: f.ixmin, Y: f.iymin, Cnt: 1, epoch: 0})
 	f.istep = f.ixmax - f.ixmin
 	f.changed = false
 }
@@ -217,8 +212,8 @@ func (f *TabulatedFunction) Normalise() {
 	var i int
 	var ym float64 = math.Max(math.Abs(f.iymax), math.Abs(f.iymin))
 
-	for i = range f.Y {
-		f.Y[i] /= ym
+	for i = range f.P {
+		f.P[i].Y /= ym
 	}
 	f.changed = true
 }
@@ -230,17 +225,17 @@ func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 	if f.changed {
 		f.update_spline()
 	}
-	Yt = make([]float64, len(by.X))
-	for i = range by.X {
-		Yt[i] = by.Y[i] * f.F(by.X[i])
+	Yt = make([]float64, len(by.P))
+	for i = range by.P {
+		Yt[i] = by.P[i].Y * f.F(by.P[i].X)
 	}
 
-	for i = range f.X {
-		f.Y[i] *= by.F(f.X[i])
+	for i = range f.P {
+		f.P[i].Y *= by.F(f.P[i].X)
 	}
 
-	for i = range by.X {
-		f.AddPoint(by.X[i], Yt[i])
+	for i = range by.P {
+		f.AddPoint(by.P[i].X, Yt[i], by.P[i].epoch, by.P[i].Cnt)
 	}
 	f.changed = true
 }
@@ -249,11 +244,11 @@ func (f *TabulatedFunction) MultiplyByFloat64(by float64) {
 	if f.changed {
 		f.update_spline()
 	}
-	for i := range f.Y {
-		f.Y[i] *= by
-		f.b[i] *= by
-		f.c[i] *= by
-		f.d[i] *= by
+	for i := range f.P {
+		f.P[i].Y *= by
+		f.P[i].b *= by
+		f.P[i].c *= by
+		f.P[i].d *= by
 	}
 	f.iymin *= by
 	f.iymax *= by
@@ -267,12 +262,7 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 	f.istep = s.istep
 	f.iOrder = s.iOrder
 
-	f.X = append([]float64{}, s.X...)
-	f.Y = append([]float64{}, s.Y...)
-	f.Cnt = append([]int64{}, s.Cnt...)
-	f.b = append([]float64{}, s.b...)
-	f.c = append([]float64{}, s.c...)
-	f.d = append([]float64{}, s.d...)
+	f.P = slices.Clone(s.P)
 	f.changed = true
 }
 
@@ -284,21 +274,16 @@ func (f *TabulatedFunction) Integrate() float64 {
 		f.update_spline()
 	}
 	tmp = 0
-	l = len(f.X) - 1
+	l = len(f.P) - 1
 	for i = 0; i < l; i++ {
-		dif = f.X[i+1] - f.X[i]
-		tmp += dif * (f.Y[i] + dif*(f.b[i]/2+dif*(f.c[i]/3+dif*f.d[i]/4)))
+		dif = f.P[i+1].X - f.P[i].X
+		tmp += dif * (f.P[i].Y + dif*(f.P[i].b/2+dif*(f.P[i].c/3+dif*f.P[i].d/4)))
 	}
 	return tmp
 }
 
 func (f *TabulatedFunction) Clear() {
-	f.X = make([]float64, 0)
-	f.Y = make([]float64, 0)
-	f.Cnt = make([]int64, 0)
-	f.b = make([]float64, 0)
-	f.c = make([]float64, 0)
-	f.d = make([]float64, 0)
+	f.P = make([]TFPoint, 0)
 	f.ixmin = 0
 	f.ixmax = 0
 	f.iymin = 0
@@ -314,26 +299,25 @@ func (f *TabulatedFunction) MorePoints() {
 	if f.changed {
 		f.update_spline()
 	}
-	j = len(f.X) - 1
+	j = len(f.P) - 1
 	if j <= 0 {
 		return
 	}
 	i = 2 * j
 	Yt = make([]float64, j)
 	for k = 0; k < j; k++ {
-		Yt[k] = f.F((f.X[k] + f.X[k+1]) / 2)
+		Yt[k] = f.F((f.P[k].X + f.P[k+1].X) / 2)
 	}
 
-	f.X = append(f.X, make([]float64, j+1)...)
-	f.Y = append(f.Y, make([]float64, j+1)...)
-	f.Cnt = append(f.Cnt, make([]int64, j+1)...)
+	f.P = append(f.P, make([]TFPoint, j+1)...)
 
 	for k = j; k >= 1; k-- {
-		f.X[i] = f.X[k]
-		f.Y[i] = f.Y[k]
+		f.P[i] = f.P[k]
 		i--
-		f.X[i] = (f.X[k] + f.X[k-1]) / 2
-		f.Y[i] = Yt[k-1]
+		f.P[i].X = (f.P[k].X + f.P[k-1].X) / 2
+		f.P[i].Y = Yt[k-1]
+		f.P[i].Cnt = 1
+		f.P[i].epoch = f.P[k].epoch
 		i--
 	}
 	f.changed = true
@@ -347,11 +331,11 @@ func (f *TabulatedFunction) Derivative() {
 	if f.iOrder > 0 {
 		f.iOrder--
 	}
-	for i = range f.X {
-		f.Y[i] = f.b[i]
-		f.b[i] = 2 * f.c[i]
-		f.c[i] = 3 * f.d[i]
-		f.d[i] = 0
+	for i = range f.P {
+		f.P[i].Y = f.P[i].b
+		f.P[i].b = 2 * f.P[i].c
+		f.P[i].c = 3 * f.P[i].d
+		f.P[i].d = 0
 	}
 }
 
@@ -362,34 +346,34 @@ func (f *TabulatedFunction) Integral() {
 	if f.changed {
 		f.update_spline()
 	}
-	j = len(f.X) - 1
+	j = len(f.P) - 1
 	acc = 0
 	if f.iOrder < 3 {
-		f.d[0] = f.c[0] / 3
-		f.c[0] = f.b[0] / 2
-		f.b[0] = f.Y[0]
-		f.Y[0] = 0
+		f.P[0].d = f.P[0].c / 3
+		f.P[0].c = f.P[0].b / 2
+		f.P[0].b = f.P[0].Y
+		f.P[0].Y = 0
 		for i = 1; i <= j; i++ {
-			r = f.X[i] - f.X[i-1]
-			f.d[i] = f.c[i] / 3
-			f.c[i] = f.b[i] / 2
-			f.b[i] = f.Y[i]
-			f.Y[i] = f.Y[i-1] + r*(f.b[i-1]+r*(f.c[i-1]+r*f.d[i-1]))
+			r = f.P[i].X - f.P[i-1].X
+			f.P[i].d = f.P[i].c / 3
+			f.P[i].c = f.P[i].b / 2
+			f.P[i].b = f.P[i].Y
+			f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i-1].c+r*f.P[i-1].d))
 		}
 		f.iOrder++
 	} else {
-		prev_acc = f.d[0] / 4
-		f.d[0] = f.c[0] / 3
-		f.c[0] = f.b[0] / 2
-		f.b[0] = f.Y[0]
-		f.Y[0] = 0
+		prev_acc = f.P[0].d / 4
+		f.P[0].d = f.P[0].c / 3
+		f.P[0].c = f.P[0].b / 2
+		f.P[0].b = f.P[0].Y
+		f.P[0].Y = 0
 		for i = 1; i <= j; i++ {
-			r = f.X[i] - f.X[i-1]
-			acc = f.d[i] / 4
-			f.d[i] = f.c[i] / 3
-			f.c[i] = f.b[i] / 2
-			f.b[i] = f.Y[i]
-			f.Y[i] = f.Y[i-1] + r*(f.b[i-1]+r*(f.c[i-1]+r*(f.d[i-1]+r*prev_acc)))
+			r = f.P[i].X - f.P[i-1].X
+			acc = f.P[i].d / 4
+			f.P[i].d = f.P[i].c / 3
+			f.P[i].c = f.P[i].b / 2
+			f.P[i].b = f.P[i].Y
+			f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i].c+r*(f.P[i-1].d+r*prev_acc)))
 			prev_acc = acc
 		}
 		f.changed = true
@@ -432,7 +416,7 @@ func (f *TabulatedFunction) GetYmax() float64 {
 }
 
 func (f *TabulatedFunction) GetNdots() int {
-	return len(f.X)
+	return len(f.P)
 }
 
 func (f *TabulatedFunction) String() string {
@@ -441,11 +425,22 @@ func (f *TabulatedFunction) String() string {
 	s = fmt.Sprintf("%s\tixmin: %v; ixmax: %v\n", s, f.ixmin, f.ixmax)
 	s = fmt.Sprintf("%s\tiymin: %v; iymax: %v\n", s, f.iymin, f.iymax)
 	s = fmt.Sprintf("%s\tistep: %v\n", s, f.istep)
-	s = fmt.Sprintf("%s\tb: %v\n", s, f.b)
-	s = fmt.Sprintf("%s\tc: %v\n", s, f.c)
-	s = fmt.Sprintf("%s\td: %v\n", s, f.d)
-	s = fmt.Sprintf("%s\tX: %v\n", s, f.X)
-	s = fmt.Sprintf("%s\tY: %v\n", s, f.Y)
-	s = fmt.Sprintf("%s\tCnt: %v\n", s, f.Cnt)
+	s = fmt.Sprintf("%s\tPoints: %v\n", s, f.P)
 	return s
+}
+
+func (f *TabulatedFunction) Epoch(epoch uint32) {
+	slices.SortFunc(f.P, func(a, b TFPoint) int {
+		if a.epoch >= epoch && b.epoch < epoch {
+			return -1
+		}
+		return cmp.Compare(a.X, b.X)
+	})
+	i := slices.IndexFunc(f.P, func(p TFPoint) bool {
+		return p.epoch < epoch
+	})
+	if i >= 0 {
+		f.P = slices.Delete(f.P, i, len(f.P))
+		f.changed = true
+	}
 }

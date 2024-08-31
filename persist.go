@@ -2,42 +2,29 @@ package tabulatedfunction
 
 import (
 	"encoding/json"
-	"errors"
+	"slices"
 )
 
 // Dump is a tabulated function dump
 type Dump struct {
 	iOrder int
-	X, Y   []float64
+	P      []TFPoint
 }
 
 // FromDump restores a tabulated function from a dump
 func (f *TabulatedFunction) FromDump(d *Dump) error {
-	if len(d.X) != len(d.Y) {
-		return errors.New("incorrect Dump: len(X) != len(Y)")
-	}
-	l := len(d.X)
-	f.X = make([]float64, l)
-	f.Y = make([]float64, l)
-	for i := range d.X {
-		f.X[i] = d.X[i]
-		f.Y[i] = d.Y[i]
-	}
+	f.P = slices.Clone(d.P)
 	f.iOrder = d.iOrder
-	f.changed = true
+	f.update_spline()
 
 	return nil
 }
 
 // Dump() generates dump for a tabulated function
 func (f *TabulatedFunction) Dump() *Dump {
-	l := len(f.X)
-	X := make([]float64, l)
-	Y := make([]float64, l)
 	return &Dump{
 		iOrder: f.iOrder,
-		X:      X,
-		Y:      Y,
+		P:      slices.Clone(f.P),
 	}
 }
 
