@@ -72,6 +72,9 @@ func (f *TabulatedFunction) update_spline() {
 
 	f.changed = false
 	i = len(f.P)
+	if i == 0 {
+		return
+	}
 	j = i - 1
 	f.ixmin = f.P[0].X
 	f.ixmax = f.ixmin
