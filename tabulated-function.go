@@ -166,17 +166,12 @@ func (f *TabulatedFunction) SetOrder(new_value int) {
 }
 
 func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32, args ...uint64) float64 {
-	var i, l int
+	var i int
 	var cnt uint64 = 1
 	if len(args) > 0 {
 		cnt = args[0]
 	}
 	f.changed = true
-	l = len(f.P)
-	if l == 0 {
-		f.P = append(f.P, TFPoint{X: Xn, Y: Yn, Cnt: cnt, epoch: epoch})
-		return Yn
-	}
 	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
 		return cmp.Compare(a.X, b.X)
 	})
@@ -192,10 +187,6 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32, args ...uint6
 		f.P[i].Cnt += cnt
 		f.P[i].Y /= float64(f.P[i].Cnt)
 		return f.P[i].Y
-	}
-	if i == l {
-		f.P = append(f.P, TFPoint{X: Xn, Y: Yn, Cnt: cnt, epoch: epoch})
-		return Yn
 	}
 	f.P = slices.Insert(f.P, i, TFPoint{X: Xn, Y: Yn, Cnt: cnt, epoch: epoch})
 	return Yn
