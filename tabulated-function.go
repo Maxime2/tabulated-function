@@ -10,7 +10,6 @@ import (
 type TFPoint struct {
 	b, c, d float64
 	X, Y    float64
-	Cnt     uint64
 	epoch   uint32
 }
 
@@ -165,12 +164,8 @@ func (f *TabulatedFunction) SetOrder(new_value int) {
 	f.changed = true
 }
 
-func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32, args ...uint64) float64 {
+func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	var i int
-	var cnt uint64 = 1
-	if len(args) > 0 {
-		cnt = args[0]
-	}
 	f.changed = true
 	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
 		return cmp.Compare(a.X, b.X)
@@ -178,17 +173,12 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32, args ...uint6
 	if found {
 		//f.P[i].X = Xn
 		if f.P[i].epoch < epoch {
-			f.P[i].Y = Yn
-			f.P[i].Cnt = 1
 			f.P[i].epoch = epoch
-			return Yn
 		}
-		f.P[i].Y = (float64(f.P[i].Cnt)*f.P[i].Y + Yn)
-		f.P[i].Cnt += cnt
-		f.P[i].Y /= float64(f.P[i].Cnt)
+		f.P[i].Y = Yn
 		return f.P[i].Y
 	}
-	f.P = slices.Insert(f.P, i, TFPoint{X: Xn, Y: Yn, Cnt: cnt, epoch: epoch})
+	f.P = slices.Insert(f.P, i, TFPoint{X: Xn, Y: Yn, epoch: epoch})
 	return Yn
 }
 
@@ -197,7 +187,7 @@ func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 	f.ixmax = new_xmax
 	f.iymin = new_Y
 	f.iymax = f.iymin
-	f.P = append([]TFPoint{}, TFPoint{X: f.ixmin, Y: f.iymin, Cnt: 1, epoch: 0})
+	f.P = append([]TFPoint{}, TFPoint{X: f.ixmin, Y: f.iymin, epoch: 0})
 	f.istep = f.ixmax - f.ixmin
 	f.changed = false
 }
@@ -229,7 +219,7 @@ func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 	}
 
 	for i = range by.P {
-		f.AddPoint(by.P[i].X, Yt[i], by.P[i].epoch, by.P[i].Cnt)
+		f.AddPoint(by.P[i].X, Yt[i], by.P[i].epoch)
 	}
 	f.changed = true
 }
@@ -310,7 +300,6 @@ func (f *TabulatedFunction) MorePoints() {
 		i--
 		f.P[i].X = (f.P[k].X + f.P[k-1].X) / 2
 		f.P[i].Y = Yt[k-1]
-		f.P[i].Cnt = 1
 		f.P[i].epoch = f.P[k].epoch
 		i--
 	}
