@@ -417,6 +417,9 @@ func (f *TabulatedFunction) Epoch(epoch uint32) {
 		if a.epoch >= epoch && b.epoch < epoch {
 			return -1
 		}
+		if a.epoch < epoch && b.epoch >= epoch {
+			return 1
+		}
 		return cmp.Compare(a.X, b.X)
 	})
 	i := slices.IndexFunc(f.P, func(p TFPoint) bool {
