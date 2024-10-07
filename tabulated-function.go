@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"math"
+	"os"
 	"slices"
 )
 
@@ -429,4 +430,248 @@ func (f *TabulatedFunction) Epoch(epoch uint32) {
 		f.P = slices.Delete(f.P, i, len(f.P))
 		f.changed = true
 	}
+}
+
+// https://github.com/rsmith-nl/ps-lib/blob/main/grid.inc
+// https://stackoverflow.com/a/20866012
+
+func (f *TabulatedFunction) DrawPS(path string) error {
+	ps, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer ps.Close()
+
+	if f.changed {
+		f.update_spline()
+	}
+	fmt.Fprintf(ps, `
+	%% This is the color that the grid is drawn in.
+/grid_major_color {1 .6 .6} def
+/grid_color {.7 1 1} def
+%% The line width used for the grid.
+/grid_major_lw 1.5 def
+/grid_lw .5 def
+
+%% Every major-th line is drawn in a different color and thickness.
+/major 10 def
+
+%% Usage: dx dy w h gridwh
+%% Draw a grid over a supplied width and height
+/gridwh {
+  4 dict begin
+    /h exch def
+    /w exch def
+    /dy exch def
+    /dx exch def
+    gsave
+        %% Set line width and color
+        grid_lw setlinewidth
+        grid_color setrgbcolor
+        %% draw
+        newpath
+        %% vertical lines
+        dx dx w {
+            0 moveto
+            0 h rlineto
+        } for
+        %% horizontal lines
+        dy dy h {
+            0 exch moveto
+            w 0 rlineto
+        } for
+        stroke
+        newpath
+        grid_major_lw setlinewidth
+        grid_major_color setrgbcolor
+        %% every 10th line
+        0 dx major mul w {
+            0 moveto
+            0 h rlineto
+        } for
+        0 dy major mul h {
+            0 exch moveto
+            w 0 rlineto
+        } for
+        stroke
+    grestore
+  end
+} bind def
+
+%% Distance between dimension point and start of witness line
+/dimoffs 6 def
+%% Distance that the witness line descends past the dimension line.
+/dimext 20 def
+%% Font for dimensions
+/dimfont /Alegraya-Regular def
+%% Font size
+/dimscale 12 def
+%% dimension text offset
+/dimtextoffs 12 def
+%% Dimension color
+/dimcol {1 .6 .6 setrgbcolor} def
+%% This defines the length of the arrow-head.
+/dimhead 30 def
+
+%% Usage: x1 y1 x2 y2 arrow_head x3 y3
+%% Sees a line from x1,y1 to x2,y2 and draws an arrow head on the latter.
+%% Returns x3 y3, leaving it to the user to draw the line (x1,y1)--(x3,y3).
+/_arrow_head {
+    9 dict begin
+        /y2 exch def /x2 exch def /y1 exch def /x1 exch def
+        /dx x2 x1 sub def /dy y2 y1 sub def /ang dy dx atan def
+        /len dx dup mul dy dup mul add sqrt def
+        /fact dimhead len 0.8 div div def
+        gsave
+            x2 y2 translate ang rotate
+            newpath 0 0 moveto dimhead neg 4 {dup} repeat -.25 mul lineto
+            .8 mul 0 lineto .25 mul lineto closepath fill
+        grestore
+        x2 dx fact mul sub y2 dy fact mul sub %% inside of the arrowhead
+    end
+} bind def
+
+%% Usage: (text) _align_middle
+/_align_middle {
+    dup %% (text) (text)
+    stringwidth pop %% (text) w
+    -2 div 0 rmoveto
+	dimfont findfont dimscale scalefont setfont
+	dimcol show
+} bind def
+
+%% Draw a horizontal dimension
+%% Usage x1 y1 x2 y2 offs (label) horizontal_dim
+/horizontal_dim {
+	gsave
+	dimcol
+    9 dict begin
+        /label exch def
+        /offs exch def
+        /y2 exch def
+        /x2 exch def
+        /y1 exch def
+        /x1 exch def
+        /q y1 offs add def
+        offs 0 ge {
+            /v y1 dimext add def
+            /w y1 offs add dimext add def
+        } {
+            /v y1 dimext sub def
+            /w y1 offs add dimext sub def
+        } ifelse
+        %% Left witness line
+        x1 v moveto x1 w lineto stroke
+        %% Right witness line
+        x2 v moveto x2 w lineto stroke
+        %% arrow heads
+        x2 q x1 q _arrow_head
+        x1 q x2 q _arrow_head
+        %% Dimension line
+        moveto lineto stroke
+        x1 x2 add 2 div q dimtextoffs add moveto label _align_middle
+    end
+	grestore
+} bind def
+
+%% Draw a vertical dimension
+%% Usage x1 y1 x2 y2 offs (label) vertical_dim
+/vertical_dim {
+	gsave
+	dimcol
+    9 dict begin
+        /label exch def
+        /offs exch def
+        /y2 exch def
+        /x2 exch def
+        /y1 exch def
+        /x1 exch def
+        /q x1 offs add def
+        offs 0 ge {
+            /v x1 dimext add def
+            /w x1 offs add dimext add def
+        } {
+            /v x1 dimext sub def
+            /w x1 offs add dimext sub def
+        } ifelse
+        %% Bottom witness line
+        v y1 moveto w y1 lineto stroke
+        %% Top witness line
+        v y2 moveto w y2 lineto stroke
+        %% arrow heads
+        q y2 q y1 _arrow_head
+        q y1 q y2 _arrow_head
+        %% Dimension line
+        moveto lineto stroke
+        %% Rotated label
+        q dimtextoffs sub y1 y2 add 2 div moveto
+        gsave 90 rotate label _align_middle grestore
+    end
+	grestore
+} bind def
+
+
+`)
+
+	fmt.Fprintf(ps, "/XValues [")
+	for _, p := range f.P {
+		fmt.Fprintf(ps, " %v ", p.X)
+	}
+	fmt.Fprintf(ps, "] def\n")
+
+	fmt.Fprintf(ps, "/YValues [")
+	for _, p := range f.P {
+		fmt.Fprintf(ps, " %v ", p.Y)
+	}
+	fmt.Fprintf(ps, "] def\n")
+
+	fmt.Fprintf(ps, "/Xmin %v dup 0.01 mul abs sub def\n/Xmax %v dup 0.01 mul abs add def\n", f.ixmin, f.ixmax)
+	fmt.Fprintf(ps, "/Ymin %v dup 0.01 mul abs sub def\n/Ymax %v dup 0.01 mul abs add def\n", f.iymin, f.iymax)
+	fmt.Fprintf(ps, `
+/Xsize Xmax Xmin sub def
+/Ysize Ymax Ymin sub def
+`)
+
+	fmt.Fprintf(ps, `
+/w currentpagedevice /PageSize get 0 get def
+/h currentpagedevice /PageSize get 1 get def
+
+w 10 div h 10 div w h gridwh
+
+/Translate { %% x y Translate
+	Ymin sub h mul Ysize div
+	exch
+	Xmin sub w mul Xsize div
+	exch 
+} bind def
+`)
+
+	fmt.Fprintf(ps, `0 h 3 div w h 3 div 10 (%v - %v) horizontal_dim
+	`, f.ixmin, f.ixmax)
+	fmt.Fprintf(ps, `w 3 div 0 w 3 div h 10 (%v - %v) vertical_dim
+	`, f.iymin, f.iymax)
+
+	fmt.Fprintf(ps, `
+
+
+XValues 0 get YValues 0 get %% X[0] Y[0]
+Translate
+moveto                      %% move to first point
+1 1 XValues length 1 sub {  %% i    push integer i = 1 .. length(XValues)-1 on each iteration
+XValues                 %% i XVal    push X array
+1 index                 %% i XVal i  copy i from stack
+get                     %% i x       get ith X value from array
+YValues                 %% i x YVal
+2 index                 %% i x YVal i  i is 1 position deeper now, so 2 index instead of 1
+get                     %% i x y
+Translate
+lineto                  %% i    line to next point
+pop                     %%      discard index variable
+} for
+stroke
+showpage
+quit
+`)
+
+	return nil
 }
