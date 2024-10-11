@@ -203,6 +203,23 @@ func (f *TabulatedFunction) Normalise() {
 	f.changed = true
 }
 
+func (f *TabulatedFunction) Smooth() {
+	for i := range f.P {
+		if i == 0 || i == len(f.P)-1 {
+			continue
+		}
+		h2 := (f.P[i].X - f.P[i-1].X) + (f.P[i+1].X - f.P[i].X)
+		d0 := (-3*f.P[i-1].Y + 4*f.P[i].Y - f.P[i+1].Y) / h2
+		d1 := (f.P[i+1].Y - f.P[i-1].Y) / h2
+		d2 := (f.P[i-1].Y - 4*f.P[i].Y + 3*f.P[i].Y) / h2
+		d := (d0 + d1 + d2) / 3
+		f1_1 := (d*h2 + 3*f.P[i-1].Y + f.P[i+1].Y) / 4
+		f1_2 := (d*h2 - f.P[i-1].Y - 3*f.P[i+1].Y) / -4
+		f.P[i].Y = (f1_1 + f1_2) / 2
+	}
+	f.changed = true
+}
+
 func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 	var i int
 	var Yt []float64
