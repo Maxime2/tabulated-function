@@ -215,7 +215,7 @@ func (f *TabulatedFunction) Smooth() {
 		d := (d0 + d1 + d2) / 3
 		f1_1 := (d*h2 + 3*f.P[i-1].Y + f.P[i+1].Y) / 4
 		f1_2 := (d*h2 - f.P[i-1].Y - 3*f.P[i+1].Y) / -4
-		f.P[i].Y = (f1_1 + f1_2) / 2
+		f.P[i].Y = (f1_1 + f1_2 + f.P[i].Y) / 3
 	}
 	f.changed = true
 }
