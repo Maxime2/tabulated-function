@@ -638,7 +638,11 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 
 	fmt.Fprintf(ps, "/YValues [\n")
 	for i, p := range f.P {
-		fmt.Fprintf(ps, " %v\t%% %v\n", p.Y, i)
+		fmt.Fprintf(ps, " %v\t%% %v", p.Y, i)
+		if i > 0 && i < len(f.P)-1 {
+			fmt.Fprintf(ps, " %v", f.P[i-1].Y+(f.P[i+1].Y-f.P[i-1].Y)*(f.P[i].X-f.P[i-1].X)/(f.P[i+1].X-f.P[i-1].X))
+		}
+		fmt.Fprintf(ps, "\n")
 	}
 	fmt.Fprintf(ps, "] def\n")
 
