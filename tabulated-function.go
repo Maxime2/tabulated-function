@@ -670,9 +670,9 @@ w 10 div h 10 div w h gridwh
 } bind def
 `)
 
-	fmt.Fprintf(ps, `0 h 3 div w h 3 div 10 (%v - %v) horizontal_dim
+	fmt.Fprintf(ps, `0 5 w 5 10 (%v - %v) horizontal_dim
 	`, f.ixmin, f.ixmax)
-	fmt.Fprintf(ps, `w 3 div 0 w 3 div h 10 (%v - %v) vertical_dim
+	fmt.Fprintf(ps, `5 0 5 h -10 (%v - %v) vertical_dim
 	`, f.iymin, f.iymax)
 
 	fmt.Fprintf(ps, `
