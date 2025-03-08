@@ -268,6 +268,13 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 	f.changed = true
 }
 
+func (f *TabulatedFunction) Merge(m *TabulatedFunction) {
+	for i := range m.P {
+		f.AddPoint(m.P[i].X, m.P[i].Y, m.P[i].epoch)
+	}
+	f.changed = true
+}
+
 func (f *TabulatedFunction) Integrate() float64 {
 	var i, l int
 	var tmp, dif float64
