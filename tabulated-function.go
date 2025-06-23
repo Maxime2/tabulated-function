@@ -469,10 +469,13 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 	if f.changed {
 		f.update_spline()
 	}
-	fmt.Fprintf(ps, `
+	fmt.Fprintf(ps, `%%!PS
 	%% This is the color that the grid is drawn in.
 /grid_major_color {1 .6 .6} def
 /grid_color {.7 1 1} def
+/line_color {.5 .5 .5} def
+/dot_color {.1 .1 .1} def
+/radius 1 def
 %% The line width used for the grid.
 /grid_major_lw 1.5 def
 /grid_lw .5 def
@@ -533,7 +536,7 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 %% dimension text offset
 /dimtextoffs 12 def
 %% Dimension color
-/dimcol {1 .6 .6 setrgbcolor} def
+/dimcol {1 .1 .1 setrgbcolor} def
 %% This defines the length of the arrow-head.
 /dimhead 30 def
 
@@ -677,14 +680,11 @@ w 10 div h 10 div w h gridwh
 } bind def
 `)
 
-	fmt.Fprintf(ps, `0 5 w 5 10 (%v - %v) horizontal_dim
-	`, f.ixmin, f.ixmax)
-	fmt.Fprintf(ps, `5 0 5 h -10 (%v - %v) vertical_dim
-	`, f.iymin, f.iymax)
-
 	fmt.Fprintf(ps, `
+%% lines
 
-
+newpath
+line_color setrgbcolor
 XValues 0 get YValues 0 get %% X[0] Y[0]
 Translate
 moveto                      %% move to first point
@@ -700,6 +700,38 @@ lineto                  %% i    line to next point
 pop                     %%      discard index variable
 } for
 stroke
+`)
+
+	fmt.Fprintf(ps, `
+%% dots
+
+newpath
+dot_color setrgbcolor
+XValues 0 get YValues 0 get %% X[0] Y[0]
+Translate
+radius 0 360 arc           %% draw the first point
+stroke
+1 1 XValues length 1 sub {  %% i    push integer i = 1 .. length(XValues)-1 on each iteration
+XValues                 %% i XVal    push X array
+1 index                 %% i XVal i  copy i from stack
+get                     %% i x       get ith X value from array
+YValues                 %% i x YVal
+2 index                 %% i x YVal i  i is 1 position deeper now, so 2 index instead of 1
+get                     %% i x y
+Translate
+radius 0 360 arc        %% i    draw the next point
+stroke
+pop                     %%      discard index variable
+} for
+`)
+
+	fmt.Fprintf(ps, `0 5 w 5 10 (%v - %v) horizontal_dim
+	`, f.ixmin, f.ixmax)
+	fmt.Fprintf(ps, `5 0 5 h 20 (%v - %v) vertical_dim
+	`, f.iymin, f.iymax)
+
+	fmt.Fprintf(ps, `
+
 showpage
 quit
 `)
