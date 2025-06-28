@@ -8,6 +8,14 @@ import (
 	"slices"
 )
 
+type Trapolation int
+
+const (
+	TrapolationLinear Trapolation = 0
+	TrapolationSpline Trapolation = 1
+	TrapolationShift  Trapolation = 2
+)
+
 type TFPoint struct {
 	b, c, d float64
 	X, Y    float64
@@ -19,6 +27,7 @@ type TabulatedFunction struct {
 	istep                      float64
 	iOrder                     int
 	changed                    bool
+	trapolation                Trapolation
 	//
 	P []TFPoint
 }
@@ -26,8 +35,9 @@ type TabulatedFunction struct {
 // Create
 func New() *TabulatedFunction {
 	return &TabulatedFunction{
-		iOrder:  3,
-		changed: false,
+		iOrder:      3,
+		trapolation: TrapolationSpline,
+		changed:     false,
 	}
 }
 
@@ -46,23 +56,46 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	if found {
 		return f.P[k].Y
 	}
-	if k == l {
-		return f.P[l-1].Y
-	}
-	if k == 0 {
-		return f.P[0].Y
-	}
-	switch f.iOrder {
-	case 0:
-		return f.P[k-1].Y
-	case 1:
+	switch f.trapolation {
+	case TrapolationLinear:
+		if k == l {
+			return f.P[l-1].Y
+		}
+		if k == 0 {
+			return f.P[0].Y
+		}
 		return f.P[k-1].Y + (f.P[k].Y-f.P[k-1].Y)*(xi-f.P[k-1].X)/(f.P[k].X-f.P[k-1].X)
+
+	case TrapolationSpline:
+		if k == l {
+			k = k - 1
+		}
+		if f.iOrder == 0 {
+			return f.P[k-1].Y
+		}
+		if f.changed {
+			f.update_spline()
+		}
+		r = xi - f.P[k].X
+		return f.P[k].Y + r*(f.P[k].b+r*(f.P[k].c+r*f.P[k].d))
+
+	case TrapolationShift:
+		if k < 2 {
+			if l < 2 {
+				return f.P[0].Y
+			}
+			return f.P[1].Y
+		}
+		if k >= l-3 {
+			if l < 3 {
+				return f.P[0].Y
+			}
+			return f.P[l-2].Y
+		}
+		return (f.P[k-2].Y + f.P[k+1].Y) / 2
 	}
-	if f.changed {
-		f.update_spline()
-	}
-	r = xi - f.P[k].X
-	return f.P[k].Y + r*(f.P[k].b+r*(f.P[k].c+r*f.P[k].d))
+	// should never reach here
+	return f.P[0].Y
 }
 
 func (f *TabulatedFunction) update_spline() {
@@ -165,6 +198,11 @@ func (f *TabulatedFunction) SetOrder(new_value int) {
 	f.changed = true
 }
 
+func (f *TabulatedFunction) SetTrapolation(new_value Trapolation) {
+	f.trapolation = new_value
+	f.changed = true
+}
+
 func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	var i int
 	f.changed = true
@@ -176,7 +214,8 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 		if f.P[i].epoch < epoch {
 			f.P[i].epoch = epoch
 		}
-		f.P[i].Y = Yn
+		//f.P[i].Y = Yn
+		f.P[i].Y = (f.P[i].Y + Yn) / 2
 		return f.P[i].Y
 	}
 	f.P = slices.Insert(f.P, i, TFPoint{X: Xn, Y: Yn, epoch: epoch})
