@@ -341,32 +341,33 @@ func (f *TabulatedFunction) Clear() {
 }
 
 func (f *TabulatedFunction) MorePoints() {
-	var i, j, k int
-	var Yt []float64
-
 	if f.changed {
 		f.update_spline()
 	}
-	j = len(f.P) - 1
-	if j <= 0 {
+
+	numPoints := len(f.P)
+	if numPoints <= 1 {
 		return
 	}
-	i = 2 * j
-	Yt = make([]float64, j)
-	for k = 0; k < j; k++ {
-		Yt[k] = f.F((f.P[k].X + f.P[k+1].X) / 2)
+
+	// The new slice will have the original points plus one interpolated point between each pair.
+	newSize := numPoints + (numPoints - 1)
+	newP := make([]TFPoint, 0, newSize)
+
+	// Add the first point
+	newP = append(newP, f.P[0])
+
+	for i := 0; i < numPoints-1; i++ {
+		p1 := f.P[i]
+		p2 := f.P[i+1]
+
+		// Add interpolated midpoint and then the next original point
+		midX := (p1.X + p2.X) / 2
+		newP = append(newP, TFPoint{X: midX, Y: f.F(midX), epoch: p2.epoch})
+		newP = append(newP, p2)
 	}
 
-	f.P = append(f.P, make([]TFPoint, j+1)...)
-
-	for k = j; k >= 1; k-- {
-		f.P[i] = f.P[k]
-		i--
-		f.P[i].X = (f.P[k].X + f.P[k-1].X) / 2
-		f.P[i].Y = Yt[k-1]
-		f.P[i].epoch = f.P[k].epoch
-		i--
-	}
+	f.P = newP
 	f.changed = true
 }
 

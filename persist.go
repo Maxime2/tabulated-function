@@ -1,47 +1,58 @@
 package tabulatedfunction
 
 import (
+	"cmp"
 	"encoding/json"
 	"slices"
 )
 
-// Dump is a tabulated function dump
+// Dump is a serializable representation of a TabulatedFunction.
 type Dump struct {
-	iOrder int
-	P      []TFPoint
+	Order  int       `json:"order"`
+	Points []TFPoint `json:"points"`
 }
 
-// FromDump restores a tabulated function from a dump
-func (f *TabulatedFunction) FromDump(d *Dump) error {
-	f.P = slices.Clone(d.P)
-	f.iOrder = d.iOrder
+// FromDump restores a tabulated function from a dump.
+// It ensures the points are sorted by X before updating the spline.
+func (f *TabulatedFunction) FromDump(d *Dump) {
+	f.iOrder = d.Order
+	f.P = slices.Clone(d.Points)
+
+	// Ensure points are sorted, as they may come from an untrusted source.
+	slices.SortFunc(f.P, func(a, b TFPoint) int {
+		return cmp.Compare(a.X, b.X)
+	})
+
 	f.update_spline()
-
-	return nil
 }
 
-// Dump() generates dump for a tabulated function
+// Dump generates a serializable dump for a tabulated function.
 func (f *TabulatedFunction) Dump() *Dump {
 	return &Dump{
-		iOrder: f.iOrder,
-		P:      slices.Clone(f.P),
+		Order:  f.iOrder,
+		Points: slices.Clone(f.P),
 	}
 }
 
-// Marshals to JSON from network
-func (f *TabulatedFunction) Marshal() ([]byte, error) {
+// MarshalJSON implements the json.Marshaler interface for TabulatedFunction.
+func (f *TabulatedFunction) MarshalJSON() ([]byte, error) {
 	return json.Marshal(f.Dump())
 }
 
-// Restores tabulated function from a JSON blob
-func Unmarshal(bytes []byte) (*TabulatedFunction, error) {
+// UnmarshalJSON implements the json.Unmarshaler interface for TabulatedFunction.
+func (f *TabulatedFunction) UnmarshalJSON(bytes []byte) error {
 	var dump Dump
 	if err := json.Unmarshal(bytes, &dump); err != nil {
-		return nil, err
+		return err
 	}
-	f := New()
-	if err := f.FromDump(&dump); err != nil {
-		return nil, err
-	}
-	return f, nil
+
+	// The json.Unmarshal call on the parent struct has already allocated
+	// a zero-value TabulatedFunction for us. We just need to populate it.
+	f.FromDump(&dump)
+
+	// Set defaults for a newly unmarshaled function.
+	// `update_spline` is called within FromDump.
+	f.trapolation = TrapolationSpline
+
+	return nil
 }
