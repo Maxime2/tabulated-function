@@ -11,9 +11,11 @@ import (
 type Trapolation int
 
 const (
-	TrapolationLinear Trapolation = 0
-	TrapolationSpline Trapolation = 1
-	TrapolationShift  Trapolation = 2
+	TrapolationLinear   Trapolation = 0
+	TrapolationSpline   Trapolation = 1
+	TrapolationShift    Trapolation = 2
+	TrapolationMinMax   Trapolation = 3
+	TrapolationOpposite Trapolation = 4
 )
 
 type TFPoint struct {
@@ -43,11 +45,8 @@ func New() *TabulatedFunction {
 
 // splinevalue
 func (f *TabulatedFunction) F(xi float64) float64 {
-	var k, l int
-	var r float64
-
-	l = len(f.P)
-	if 1 > l {
+	l := len(f.P)
+	if l == 0 {
 		return math.NaN()
 	}
 	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
@@ -56,46 +55,137 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	if found {
 		return f.P[k].Y
 	}
-	switch f.trapolation {
-	case TrapolationLinear:
-		if k == l {
-			return f.P[l-1].Y
+
+	var left, right int
+	if k >= l {
+		right = l - 1
+	} else {
+		right = k
+	}
+	if k == 0 {
+		left = 0
+	} else {
+		left = k - 1
+	}
+
+	return f._interpolate(xi, left, right, f.trapolation)
+}
+
+func (f *TabulatedFunction) Trapolate(xi float64, trapolation Trapolation) float64 {
+	l := len(f.P)
+	if l == 0 {
+		return 1
+	}
+	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
+		return cmp.Compare(a.X, b.X)
+	})
+
+	var left, right int
+	if found {
+		if k == l-1 {
+			right = k
+		} else {
+			right = k + 1
 		}
 		if k == 0 {
-			return f.P[0].Y
+			left = k
+		} else {
+			left = k - 1
 		}
-		return f.P[k-1].Y + (f.P[k].Y-f.P[k-1].Y)*(xi-f.P[k-1].X)/(f.P[k].X-f.P[k-1].X)
+	} else {
+		if k >= l {
+			right = l - 1
+		} else {
+			right = k
+		}
+		left = k - 1
+	}
+
+	return f._interpolate(xi, left, right, trapolation)
+}
+
+// _interpolate calculates the value at xi based on the surrounding points.
+// It assumes left and right indices are correctly set.
+func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolation Trapolation) float64 {
+	switch trapolation {
+	case TrapolationLinear:
+		// If left==right, it's extrapolation. Return the boundary value.
+		if left == right || left < 0 {
+			return f.P[right].Y
+		}
+		// Avoid division by zero if points are not distinct on X.
+		dx := f.P[right].X - f.P[left].X
+		if dx == 0 {
+			return f.P[left].Y
+		}
+		return f.P[left].Y + (f.P[right].Y-f.P[left].Y)*(xi-f.P[left].X)/dx
+
+		// Similar to Linear then switch to opposite value
+	case TrapolationOpposite:
+		// If left==right, it's extrapolation. Return the boundary value.
+		if left == right || left < 0 {
+			return f.GetYmin() + f.GetYmax() - f.P[right].Y
+		}
+
+		// Determine if xi is closer to the left or right point.
+		midpoint := (f.P[left].X + f.P[right].X) / 2
+		if xi <= midpoint {
+			// If closer to the left point, return the right point's Y value.
+			return f.P[right].Y
+		}
+		// Otherwise (closer to the right point), return the left point's Y value.
+		return f.P[left].Y
 
 	case TrapolationSpline:
-		if k == l {
-			k = k - 1
+		// For order 1 (linear), extrapolation should clamp to the boundary value.
+		// This makes its extrapolation behavior consistent with TrapolationLinear
+		// and fixes an inconsistency where left-side extrapolated linearly while
+		// the right-side clamped.
+		if f.iOrder == 1 && (left == right || left < 0) {
+			return f.P[right].Y
 		}
-		if f.iOrder == 0 {
-			return f.P[k-1].Y
-		}
+
 		if f.changed {
 			f.update_spline()
 		}
-		r = xi - f.P[k].X
-		return f.P[k].Y + r*(f.P[k].b+r*(f.P[k].c+r*f.P[k].d))
+
+		// For interpolation, the segment is defined by P[left].
+		// For extrapolation, left==right, and we use the coefficients of that boundary point.
+		r := xi - f.P[left].X
+		return f.P[left].Y + r*(f.P[left].b+r*(f.P[left].c+r*f.P[left].d))
 
 	case TrapolationShift:
-		if k < 2 {
-			if l < 2 {
-				return f.P[0].Y
-			}
-			return f.P[1].Y
+		if left < 0 {
+			return f.P[right].Y
 		}
-		if k >= l-3 {
-			if l < 3 {
-				return f.P[0].Y
-			}
-			return f.P[l-2].Y
+		return (f.P[left].Y + f.P[right].Y) / 2
+
+	case TrapolationMinMax:
+		var v [2]float64
+
+		if left < 0 {
+			left = 0
 		}
-		return (f.P[k-2].Y + f.P[k+1].Y) / 2
+
+		if f.changed {
+			f.update_spline()
+		}
+
+		v[0] += math.Abs(f.iymin - f.P[left].Y)
+		v[0] += math.Abs(f.iymin - f.P[right].Y)
+
+		v[1] += math.Abs(f.iymax - f.P[left].Y)
+		v[1] += math.Abs(f.iymax - f.P[right].Y)
+
+		if v[0] > v[1] {
+			return (f.iymin + (f.P[left].Y+f.P[right].Y)/2.0) / 2.0
+		}
+		return (f.iymax + (f.P[left].Y+f.P[right].Y)/2.0) / 2.0
+
 	}
-	// should never reach here
-	return f.P[0].Y
+	// This is unreachable if all Trapolation values are handled.
+	// A panic is better than returning a magic number.
+	panic("unhandled trapolation type")
 }
 
 func (f *TabulatedFunction) update_spline() {
@@ -206,15 +296,13 @@ func (f *TabulatedFunction) SetTrapolation(new_value Trapolation) {
 func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	var i int
 	f.changed = true
+	Xn = math.Round(Xn*10000) / 10000
 	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
 		return cmp.Compare(a.X, b.X)
 	})
 	if found {
 		//f.P[i].X = Xn
-		if f.P[i].epoch < epoch {
-			f.P[i].epoch = epoch
-		}
-		//f.P[i].Y = Yn
+		f.P[i].epoch = epoch
 		f.P[i].Y = (f.P[i].Y + Yn) / 2
 		return f.P[i].Y
 	}
@@ -250,11 +338,11 @@ func (f *TabulatedFunction) Smooth() {
 		h2 := (f.P[i].X - f.P[i-1].X) + (f.P[i+1].X - f.P[i].X)
 		d0 := (-3*f.P[i-1].Y + 4*f.P[i].Y - f.P[i+1].Y) / h2
 		d1 := (f.P[i+1].Y - f.P[i-1].Y) / h2
-		d2 := (f.P[i-1].Y - 4*f.P[i].Y + 3*f.P[i].Y) / h2
+		d2 := (f.P[i-1].Y - 4*f.P[i].Y + 3*f.P[i+1].Y) / h2
 		d := (d0 + d1 + d2) / 3
 		f1_1 := (d*h2 + 3*f.P[i-1].Y + f.P[i+1].Y) / 4
 		f1_2 := (d*h2 - f.P[i-1].Y - 3*f.P[i+1].Y) / -4
-		f.P[i].Y = (f1_1 + f1_2 + f.P[i].Y) / 3
+		f.P[i].Y = (f1_1 + f1_2) / 2
 	}
 	f.changed = true
 }
