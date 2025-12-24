@@ -1,9 +1,8 @@
 package tabulatedfunction
 
 import (
-	"cmp"
 	"fmt"
-	"math"
+	"math/big"
 	"os"
 	"slices"
 )
@@ -19,14 +18,14 @@ const (
 )
 
 type TFPoint struct {
-	b, c, d float64
-	X, Y    float64
+	b, c, d *big.Float
+	X, Y    *big.Float
 	epoch   uint32
 }
 
 type TabulatedFunction struct {
-	ixmin, ixmax, iymin, iymax float64
-	istep                      float64
+	ixmin, ixmax, iymin, iymax *big.Float
+	istep                      *big.Float
 	iOrder                     int
 	changed                    bool
 	trapolation                Trapolation
@@ -40,20 +39,25 @@ func New() *TabulatedFunction {
 		iOrder:      3,
 		trapolation: TrapolationSpline,
 		changed:     false,
+		ixmin:       new(big.Float),
+		ixmax:       new(big.Float),
+		iymin:       new(big.Float),
+		iymax:       new(big.Float),
+		istep:       new(big.Float),
 	}
 }
 
 // splinevalue
-func (f *TabulatedFunction) F(xi float64) float64 {
+func (f *TabulatedFunction) F(xi *big.Float) *big.Float {
 	l := len(f.P)
 	if l == 0 {
-		return math.NaN()
+		return nil
 	}
 	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
-		return cmp.Compare(a.X, b.X)
+		return a.X.Cmp(b.X)
 	})
 	if found {
-		return f.P[k].Y
+		return new(big.Float).Set(f.P[k].Y)
 	}
 
 	var left, right int
@@ -71,13 +75,13 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	return f._interpolate(xi, left, right, f.trapolation)
 }
 
-func (f *TabulatedFunction) Trapolate(xi float64, trapolation Trapolation) float64 {
+func (f *TabulatedFunction) Trapolate(xi *big.Float, trapolation Trapolation) *big.Float {
 	l := len(f.P)
 	if l == 0 {
-		return 1
+		return big.NewFloat(1)
 	}
 	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
-		return cmp.Compare(a.X, b.X)
+		return a.X.Cmp(b.X)
 	})
 
 	var left, right int
@@ -106,35 +110,47 @@ func (f *TabulatedFunction) Trapolate(xi float64, trapolation Trapolation) float
 
 // _interpolate calculates the value at xi based on the surrounding points.
 // It assumes left and right indices are correctly set.
-func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolation Trapolation) float64 {
+func (f *TabulatedFunction) _interpolate(xi *big.Float, left, right int, trapolation Trapolation) *big.Float {
 	switch trapolation {
 	case TrapolationLinear:
 		// If left==right, it's extrapolation. Return the boundary value.
 		if left == right || left < 0 {
-			return f.P[right].Y
+			return new(big.Float).Set(f.P[right].Y)
 		}
 		// Avoid division by zero if points are not distinct on X.
-		dx := f.P[right].X - f.P[left].X
-		if dx == 0 {
-			return f.P[left].Y
+		dx := new(big.Float).Sub(f.P[right].X, f.P[left].X)
+		if dx.Sign() == 0 {
+			return new(big.Float).Set(f.P[left].Y)
 		}
-		return f.P[left].Y + (f.P[right].Y-f.P[left].Y)*(xi-f.P[left].X)/dx
+		// f.P[left].Y + (f.P[right].Y-f.P[left].Y)*(xi-f.P[left].X)/dx
+		dy := new(big.Float).Sub(f.P[right].Y, f.P[left].Y)
+		ratio := new(big.Float).Sub(xi, f.P[left].X)
+		ratio.Quo(ratio, dx)
+		res := new(big.Float).Mul(dy, ratio)
+		res.Add(f.P[left].Y, res)
+		return res
 
 		// Similar to Linear then switch to opposite value
 	case TrapolationOpposite:
 		// If left==right, it's extrapolation. Return the boundary value.
 		if left == right || left < 0 {
-			return f.GetYmin() + f.GetYmax() - f.P[right].Y
+			// f.GetYmin() + f.GetYmax() - f.P[right].Y
+			res := new(big.Float).Add(f.GetYmin(), f.GetYmax())
+			res.Sub(res, f.P[right].Y)
+			return res
 		}
 
 		// Determine if xi is closer to the left or right point.
-		midpoint := (f.P[left].X + f.P[right].X) / 2
-		if xi <= midpoint {
+		// midpoint := (f.P[left].X + f.P[right].X) / 2
+		midpoint := new(big.Float).Add(f.P[left].X, f.P[right].X)
+		midpoint.Quo(midpoint, big.NewFloat(2))
+
+		if xi.Cmp(midpoint) <= 0 {
 			// If closer to the left point, return the right point's Y value.
-			return f.P[right].Y
+			return new(big.Float).Set(f.P[right].Y)
 		}
 		// Otherwise (closer to the right point), return the left point's Y value.
-		return f.P[left].Y
+		return new(big.Float).Set(f.P[left].Y)
 
 	case TrapolationSpline:
 		// For order 1 (linear), extrapolation should clamp to the boundary value.
@@ -142,7 +158,7 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 		// and fixes an inconsistency where left-side extrapolated linearly while
 		// the right-side clamped.
 		if f.iOrder == 1 && (left == right || left < 0) {
-			return f.P[right].Y
+			return new(big.Float).Set(f.P[right].Y)
 		}
 
 		if f.changed {
@@ -151,17 +167,26 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 
 		// For interpolation, the segment is defined by P[left].
 		// For extrapolation, left==right, and we use the coefficients of that boundary point.
-		r := xi - f.P[left].X
-		return f.P[left].Y + r*(f.P[left].b+r*(f.P[left].c+r*f.P[left].d))
+		// r := xi - f.P[left].X
+		// return f.P[left].Y + r*(f.P[left].b+r*(f.P[left].c+r*f.P[left].d))
+		r := new(big.Float).Sub(xi, f.P[left].X)
+		term := new(big.Float).Mul(r, f.P[left].d)
+		term.Add(f.P[left].c, term)
+		term.Mul(r, term)
+		term.Add(f.P[left].b, term)
+		term.Mul(r, term)
+		term.Add(f.P[left].Y, term)
+		return term
 
 	case TrapolationShift:
 		if left < 0 {
-			return f.P[right].Y
+			return new(big.Float).Set(f.P[right].Y)
 		}
-		return (f.P[left].Y + f.P[right].Y) / 2
+		res := new(big.Float).Add(f.P[left].Y, f.P[right].Y)
+		return res.Quo(res, big.NewFloat(2))
 
 	case TrapolationMinMax:
-		var v [2]float64
+		var v [2]*big.Float
 
 		if left < 0 {
 			left = 0
@@ -171,16 +196,26 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 			f.update_spline()
 		}
 
-		v[0] += math.Abs(f.iymin - f.P[left].Y)
-		v[0] += math.Abs(f.iymin - f.P[right].Y)
+		v[0] = new(big.Float)
+		v[1] = new(big.Float)
 
-		v[1] += math.Abs(f.iymax - f.P[left].Y)
-		v[1] += math.Abs(f.iymax - f.P[right].Y)
+		diff := new(big.Float).Sub(f.iymin, f.P[left].Y)
+		v[0].Add(v[0], diff.Abs(diff))
+		diff.Sub(f.iymin, f.P[right].Y)
+		v[0].Add(v[0], diff.Abs(diff))
 
-		if v[0] > v[1] {
-			return (f.iymin + (f.P[left].Y+f.P[right].Y)/2.0) / 2.0
+		diff.Sub(f.iymax, f.P[left].Y)
+		v[1].Add(v[1], diff.Abs(diff))
+		diff.Sub(f.iymax, f.P[right].Y)
+		v[1].Add(v[1], diff.Abs(diff))
+
+		avg := new(big.Float).Add(f.P[left].Y, f.P[right].Y)
+		avg.Quo(avg, big.NewFloat(2))
+
+		if v[0].Cmp(v[1]) > 0 {
+			return avg.Add(f.iymin, avg).Quo(avg, big.NewFloat(2))
 		}
-		return (f.iymax + (f.P[left].Y+f.P[right].Y)/2.0) / 2.0
+		return avg.Add(f.iymax, avg).Quo(avg, big.NewFloat(2))
 
 	}
 	// This is unreachable if all Trapolation values are handled.
@@ -190,8 +225,8 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 
 func (f *TabulatedFunction) update_spline() {
 	var i, j int
-	var h, alpha, l, mu, z []float64
-	var det, x1, x2, y1, y2 float64
+	var h, alpha, l, mu, z []*big.Float
+	var det, x1, x2, y1, y2 *big.Float
 
 	f.changed = false
 	i = len(f.P)
@@ -199,87 +234,129 @@ func (f *TabulatedFunction) update_spline() {
 		return
 	}
 	j = i - 1
-	f.ixmin = f.P[0].X
-	f.ixmax = f.ixmin
-	f.iymin = f.P[0].Y
-	f.iymax = f.iymin
+	f.ixmin.Set(f.P[0].X)
+	f.ixmax.Set(f.ixmin)
+	f.iymin.Set(f.P[0].Y)
+	f.iymax.Set(f.iymin)
 	for i = 1; i <= j; i++ {
-		if f.P[i].X < f.ixmin {
-			f.ixmin = f.P[i].X
-		} else if f.P[i].X > f.ixmax {
-			f.ixmax = f.P[i].X
+		if f.P[i].X.Cmp(f.ixmin) < 0 {
+			f.ixmin.Set(f.P[i].X)
+		} else if f.P[i].X.Cmp(f.ixmax) > 0 {
+			f.ixmax.Set(f.P[i].X)
 		}
-		if f.P[i].Y < f.iymin {
-			f.iymin = f.P[i].Y
+		if f.P[i].Y.Cmp(f.iymin) < 0 {
+			f.iymin.Set(f.P[i].Y)
 		}
-		if f.P[i].Y > f.iymax {
-			f.iymax = f.P[i].Y
+		if f.P[i].Y.Cmp(f.iymax) > 0 {
+			f.iymax.Set(f.P[i].Y)
 		}
 	}
 	if j > 0 {
-		f.istep = f.P[1].X - f.P[0].X
+		f.istep.Sub(f.P[1].X, f.P[0].X)
 		for i = 2; i <= j; i++ {
-			if (f.P[i].X - f.P[i-1].X) < f.istep {
-				f.istep = f.P[i].X - f.P[i-1].X
+			diff := new(big.Float).Sub(f.P[i].X, f.P[i-1].X)
+			if diff.Cmp(f.istep) < 0 {
+				f.istep.Set(diff)
 			}
 		}
 	} else {
-		f.istep = 0
+		f.istep.SetInt64(0)
 	}
 	for i = 0; i <= j; i++ {
-		f.P[i].b = 0
-		f.P[i].c = 0
-		f.P[i].d = 0
+		f.P[i].b = new(big.Float)
+		f.P[i].c = new(big.Float)
+		f.P[i].d = new(big.Float)
 	}
 	if f.iOrder == 0 {
 		return
 	}
-	h = make([]float64, j+1)
+	h = make([]*big.Float, j+1)
 	for i = 0; i <= j-1; i++ {
-		h[i] = f.P[i+1].X - f.P[i].X
+		h[i] = new(big.Float).Sub(f.P[i+1].X, f.P[i].X)
 	}
 	if f.iOrder == 1 {
 		for i = 0; i <= j-1; i++ {
-			f.P[i].b = (f.P[i+1].Y - f.P[i].Y) / h[i]
+			f.P[i].b.Sub(f.P[i+1].Y, f.P[i].Y)
+			f.P[i].b.Quo(f.P[i].b, h[i])
 		}
 		return
 	}
 	if f.iOrder == 2 {
 		for i = 0; i <= j-2; i++ {
-			x1 = f.P[i+1].X - f.P[i].X
-			x2 = f.P[i+2].X - f.P[i].X
-			y1 = f.P[i+1].Y - f.P[i].Y
-			y2 = f.P[i+2].Y - f.P[i].Y
-			det = x1 * x2 * (x2 - x1)
-			det = 1 / det
-			f.P[i].b = (y1*x2*x2 - y2*x1*x1) * det
-			f.P[i].c = (y2*x1 - y1*x2) * det
+			x1 = new(big.Float).Sub(f.P[i+1].X, f.P[i].X)
+			x2 = new(big.Float).Sub(f.P[i+2].X, f.P[i].X)
+			y1 = new(big.Float).Sub(f.P[i+1].Y, f.P[i].Y)
+			y2 = new(big.Float).Sub(f.P[i+2].Y, f.P[i].Y)
+
+			// det = x1 * x2 * (x2 - x1)
+			det = new(big.Float).Mul(x1, x2)
+			det.Mul(det, new(big.Float).Sub(x2, x1))
+			// det = 1 / det
+			det.Quo(big.NewFloat(1), det)
+
+			// b = (y1*x2*x2 - y2*x1*x1) * det
+			t1 := new(big.Float).Mul(y1, x2)
+			t1.Mul(t1, x2)
+			t2 := new(big.Float).Mul(y2, x1)
+			t2.Mul(t2, x1)
+			f.P[i].b.Sub(t1, t2).Mul(f.P[i].b, det)
+
+			// c = (y2*x1 - y1*x2) * det
+			t1.Mul(y2, x1)
+			t2.Mul(y1, x2)
+			f.P[i].c.Sub(t1, t2).Mul(f.P[i].c, det)
 		}
-		f.P[j-1].b = (f.P[j].Y - f.P[j-1].Y) / h[i]
+		f.P[j-1].b.Sub(f.P[j].Y, f.P[j-1].Y).Quo(f.P[j-1].b, h[j-1])
 		return
 	}
-	alpha = make([]float64, j+1)
-	l = make([]float64, j+1)
-	mu = make([]float64, j+1)
-	z = make([]float64, j+1)
+	alpha = make([]*big.Float, j+1)
+	l = make([]*big.Float, j+1)
+	mu = make([]*big.Float, j+1)
+	z = make([]*big.Float, j+1)
 	for i = 1; i <= j-1; i++ {
-		alpha[i] = 3/h[i]*(f.P[i+1].Y-f.P[i].Y) - 3/h[i-1]*(f.P[i].Y-f.P[i-1].Y)
+		// alpha[i] = 3/h[i]*(f.P[i+1].Y-f.P[i].Y) - 3/h[i-1]*(f.P[i].Y-f.P[i-1].Y)
+		t1 := new(big.Float).Sub(f.P[i+1].Y, f.P[i].Y)
+		t1.Mul(t1, big.NewFloat(3)).Quo(t1, h[i])
+		t2 := new(big.Float).Sub(f.P[i].Y, f.P[i-1].Y)
+		t2.Mul(t2, big.NewFloat(3)).Quo(t2, h[i-1])
+		alpha[i] = new(big.Float).Sub(t1, t2)
 	}
-	l[0] = 1
-	mu[0] = 0
-	z[0] = 0
+	l[0] = big.NewFloat(1)
+	mu[0] = new(big.Float)
+	z[0] = new(big.Float)
 	for i = 1; i <= j-1; i++ {
-		l[i] = 2*(f.P[i+1].X-f.P[i-1].X) - h[i-1]*mu[i-1]
-		mu[i] = h[i] / l[i]
-		z[i] = (alpha[i] - h[i-1]*z[i-1]) / l[i]
+		// l[i] = 2*(f.P[i+1].X-f.P[i-1].X) - h[i-1]*mu[i-1]
+		t1 := new(big.Float).Sub(f.P[i+1].X, f.P[i-1].X)
+		t1.Mul(t1, big.NewFloat(2))
+		t2 := new(big.Float).Mul(h[i-1], mu[i-1])
+		l[i] = new(big.Float).Sub(t1, t2)
+		// mu[i] = h[i] / l[i]
+		mu[i] = new(big.Float).Quo(h[i], l[i])
+		// z[i] = (alpha[i] - h[i-1]*z[i-1]) / l[i]
+		t3 := new(big.Float).Mul(h[i-1], z[i-1])
+		z[i] = new(big.Float).Sub(alpha[i], t3)
+		z[i].Quo(z[i], l[i])
 	}
-	l[j] = 1
-	z[j] = 0
-	f.P[j].c = 0
+	l[j] = big.NewFloat(1)
+	z[j] = new(big.Float)
+	f.P[j].c = new(big.Float)
 	for i = j - 1; i >= 0; i-- {
-		f.P[i].c = z[i] - mu[i]*f.P[i+1].c
-		f.P[i].b = (f.P[i+1].Y-f.P[i].Y)/h[i] - h[i]*(f.P[i+1].c+2*f.P[i].c)/3
-		f.P[i].d = (f.P[i+1].c - f.P[i].c) / 3 / h[i]
+		// f.P[i].c = z[i] - mu[i]*f.P[i+1].c
+		t1 := new(big.Float).Mul(mu[i], f.P[i+1].c)
+		f.P[i].c.Sub(z[i], t1)
+
+		// f.P[i].b = (f.P[i+1].Y-f.P[i].Y)/h[i] - h[i]*(f.P[i+1].c+2*f.P[i].c)/3
+		t2 := new(big.Float).Sub(f.P[i+1].Y, f.P[i].Y)
+		t2.Quo(t2, h[i])
+		t3 := new(big.Float).Mul(f.P[i].c, big.NewFloat(2))
+		t3.Add(f.P[i+1].c, t3)
+		t3.Mul(t3, h[i]).Quo(t3, big.NewFloat(3))
+		f.P[i].b.Sub(t2, t3)
+
+		// f.P[i].d = (f.P[i+1].c - f.P[i].c) / 3 / h[i]
+		t4 := new(big.Float).Sub(f.P[i+1].c, f.P[i].c)
+		t4.Quo(t4, big.NewFloat(3))
+		f.P[i].d.Quo(t4, h[i])
 	}
 }
 
@@ -293,39 +370,66 @@ func (f *TabulatedFunction) SetTrapolation(new_value Trapolation) {
 	f.changed = true
 }
 
-func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
+func (f *TabulatedFunction) AddPoint(Xn, Yn *big.Float, epoch uint32) *big.Float {
 	var i int
 	f.changed = true
-	Xn = math.Round(Xn*10000) / 10000
+
+	// Xn = math.Round(Xn*10000) / 10000
+	scale := big.NewFloat(10000)
+	val := new(big.Float).Mul(Xn, scale)
+	half := big.NewFloat(0.5)
+	if val.Sign() < 0 {
+		half.Neg(half)
+	}
+	val.Add(val, half)
+	intVal := new(big.Int)
+	val.Int(intVal)
+	XnRounded := new(big.Float).SetInt(intVal)
+	XnRounded.Quo(XnRounded, scale)
+
 	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
-		return cmp.Compare(a.X, b.X)
+		return a.X.Cmp(b.X)
 	})
 	if found {
 		//f.P[i].X = Xn
 		f.P[i].epoch = epoch
-		f.P[i].Y = (f.P[i].Y + Yn) / 2
-		return f.P[i].Y
+		f.P[i].Y.Add(f.P[i].Y, Yn).Quo(f.P[i].Y, big.NewFloat(2))
+		return new(big.Float).Set(f.P[i].Y)
 	}
-	f.P = slices.Insert(f.P, i, TFPoint{X: Xn, Y: Yn, epoch: epoch})
+	f.P = slices.Insert(f.P, i, TFPoint{
+		X:     XnRounded,
+		Y:     new(big.Float).Set(Yn),
+		epoch: epoch,
+		b:     new(big.Float),
+		c:     new(big.Float),
+		d:     new(big.Float),
+	})
 	return Yn
 }
 
-func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
-	f.ixmin = new_xmin
-	f.ixmax = new_xmax
-	f.iymin = new_Y
-	f.iymax = f.iymin
-	f.P = append([]TFPoint{}, TFPoint{X: f.ixmin, Y: f.iymin, epoch: 0})
-	f.istep = f.ixmax - f.ixmin
+func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax *big.Float) {
+	f.ixmin.Set(new_xmin)
+	f.ixmax.Set(new_xmax)
+	f.iymin.Set(new_Y)
+	f.iymax.Set(f.iymin)
+	f.P = append([]TFPoint{}, TFPoint{
+		X: new(big.Float).Set(f.ixmin), Y: new(big.Float).Set(f.iymin), epoch: 0,
+		b: new(big.Float), c: new(big.Float), d: new(big.Float),
+	})
+	f.istep.Sub(f.ixmax, f.ixmin)
 	f.changed = false
 }
 
 func (f *TabulatedFunction) Normalise() {
 	var i int
-	var ym float64 = math.Max(math.Abs(f.iymax), math.Abs(f.iymin))
+	ym := new(big.Float).Abs(f.iymax)
+	yminAbs := new(big.Float).Abs(f.iymin)
+	if yminAbs.Cmp(ym) > 0 {
+		ym.Set(yminAbs)
+	}
 
 	for i = range f.P {
-		f.P[i].Y /= ym
+		f.P[i].Y.Quo(f.P[i].Y, ym)
 	}
 	f.changed = true
 }
@@ -335,32 +439,59 @@ func (f *TabulatedFunction) Smooth() {
 		if i == 0 || i == len(f.P)-1 {
 			continue
 		}
-		h2 := (f.P[i].X - f.P[i-1].X) + (f.P[i+1].X - f.P[i].X)
-		d0 := (-3*f.P[i-1].Y + 4*f.P[i].Y - f.P[i+1].Y) / h2
-		d1 := (f.P[i+1].Y - f.P[i-1].Y) / h2
-		d2 := (f.P[i-1].Y - 4*f.P[i].Y + 3*f.P[i+1].Y) / h2
-		d := (d0 + d1 + d2) / 3
-		f1_1 := (d*h2 + 3*f.P[i-1].Y + f.P[i+1].Y) / 4
-		f1_2 := (d*h2 - f.P[i-1].Y - 3*f.P[i+1].Y) / -4
-		f.P[i].Y = (f1_1 + f1_2) / 2
+		// h2 := (f.P[i].X - f.P[i-1].X) + (f.P[i+1].X - f.P[i].X)
+		h2 := new(big.Float).Sub(f.P[i].X, f.P[i-1].X)
+		h2.Add(h2, new(big.Float).Sub(f.P[i+1].X, f.P[i].X))
+
+		// d0 := (-3*f.P[i-1].Y + 4*f.P[i].Y - f.P[i+1].Y) / h2
+		d0 := new(big.Float).Mul(f.P[i-1].Y, big.NewFloat(-3))
+		d0.Add(d0, new(big.Float).Mul(f.P[i].Y, big.NewFloat(4)))
+		d0.Sub(d0, f.P[i+1].Y)
+		d0.Quo(d0, h2)
+
+		// d1 := (f.P[i+1].Y - f.P[i-1].Y) / h2
+		d1 := new(big.Float).Sub(f.P[i+1].Y, f.P[i-1].Y)
+		d1.Quo(d1, h2)
+
+		// d2 := (f.P[i-1].Y - 4*f.P[i].Y + 3*f.P[i+1].Y) / h2
+		d2 := new(big.Float).Sub(f.P[i-1].Y, new(big.Float).Mul(f.P[i].Y, big.NewFloat(4)))
+		d2.Add(d2, new(big.Float).Mul(f.P[i+1].Y, big.NewFloat(3)))
+		d2.Quo(d2, h2)
+
+		// d := (d0 + d1 + d2) / 3
+		d := new(big.Float).Add(d0, d1).Add(d0, d2).Quo(d0, big.NewFloat(3))
+
+		// f1_1 := (d*h2 + 3*f.P[i-1].Y + f.P[i+1].Y) / 4
+		f1_1 := new(big.Float).Mul(d, h2)
+		f1_1.Add(f1_1, new(big.Float).Mul(f.P[i-1].Y, big.NewFloat(3)))
+		f1_1.Add(f1_1, f.P[i+1].Y).Quo(f1_1, big.NewFloat(4))
+
+		// f1_2 := (d*h2 - f.P[i-1].Y - 3*f.P[i+1].Y) / -4
+		f1_2 := new(big.Float).Mul(d, h2)
+		f1_2.Sub(f1_2, f.P[i-1].Y)
+		f1_2.Sub(f1_2, new(big.Float).Mul(f.P[i+1].Y, big.NewFloat(3)))
+		f1_2.Quo(f1_2, big.NewFloat(-4))
+
+		// f.P[i].Y = (f1_1 + f1_2) / 2
+		f.P[i].Y.Add(f1_1, f1_2).Quo(f.P[i].Y, big.NewFloat(2))
 	}
 	f.changed = true
 }
 
 func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 	var i int
-	var Yt []float64
+	var Yt []*big.Float
 
 	if f.changed {
 		f.update_spline()
 	}
-	Yt = make([]float64, len(by.P))
+	Yt = make([]*big.Float, len(by.P))
 	for i = range by.P {
-		Yt[i] = by.P[i].Y * f.F(by.P[i].X)
+		Yt[i] = new(big.Float).Mul(by.P[i].Y, f.F(by.P[i].X))
 	}
 
 	for i = range f.P {
-		f.P[i].Y *= by.F(f.P[i].X)
+		f.P[i].Y.Mul(f.P[i].Y, by.F(f.P[i].X))
 	}
 
 	for i = range by.P {
@@ -369,29 +500,39 @@ func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 	f.changed = true
 }
 
-func (f *TabulatedFunction) MultiplyByFloat64(by float64) {
+func (f *TabulatedFunction) MultiplyByScalar(by *big.Float) {
 	if f.changed {
 		f.update_spline()
 	}
 	for i := range f.P {
-		f.P[i].Y *= by
-		f.P[i].b *= by
-		f.P[i].c *= by
-		f.P[i].d *= by
+		f.P[i].Y.Mul(f.P[i].Y, by)
+		f.P[i].b.Mul(f.P[i].b, by)
+		f.P[i].c.Mul(f.P[i].c, by)
+		f.P[i].d.Mul(f.P[i].d, by)
 	}
-	f.iymin *= by
-	f.iymax *= by
+	f.iymin.Mul(f.iymin, by)
+	f.iymax.Mul(f.iymax, by)
 }
 
 func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
-	f.ixmin = s.ixmin
-	f.ixmax = s.ixmax
-	f.iymin = s.iymin
-	f.iymax = s.iymax
-	f.istep = s.istep
+	f.ixmin.Set(s.ixmin)
+	f.ixmax.Set(s.ixmax)
+	f.iymin.Set(s.iymin)
+	f.iymax.Set(s.iymax)
+	f.istep.Set(s.istep)
 	f.iOrder = s.iOrder
 
-	f.P = slices.Clone(s.P)
+	f.P = make([]TFPoint, len(s.P))
+	for i, p := range s.P {
+		f.P[i] = TFPoint{
+			X:     new(big.Float).Set(p.X),
+			Y:     new(big.Float).Set(p.Y),
+			b:     new(big.Float).Set(p.b),
+			c:     new(big.Float).Set(p.c),
+			d:     new(big.Float).Set(p.d),
+			epoch: p.epoch,
+		}
+	}
 	f.changed = true
 }
 
@@ -402,29 +543,39 @@ func (f *TabulatedFunction) Merge(m *TabulatedFunction) {
 	f.changed = true
 }
 
-func (f *TabulatedFunction) Integrate() float64 {
+func (f *TabulatedFunction) Integrate() *big.Float {
 	var i, l int
-	var tmp, dif float64
+	var tmp, dif *big.Float
 
 	if f.changed {
 		f.update_spline()
 	}
-	tmp = 0
+	tmp = new(big.Float)
 	l = len(f.P) - 1
 	for i = 0; i < l; i++ {
-		dif = f.P[i+1].X - f.P[i].X
-		tmp += dif * (f.P[i].Y + dif*(f.P[i].b/2+dif*(f.P[i].c/3+dif*f.P[i].d/4)))
+		// dif = f.P[i+1].X - f.P[i].X
+		dif = new(big.Float).Sub(f.P[i+1].X, f.P[i].X)
+		// term = f.P[i].Y + dif*(f.P[i].b/2+dif*(f.P[i].c/3+dif*f.P[i].d/4))
+		term := new(big.Float).Mul(f.P[i].d, dif)
+		term.Quo(term, big.NewFloat(4))
+		term.Add(term, new(big.Float).Quo(f.P[i].c, big.NewFloat(3)))
+		term.Mul(term, dif)
+		term.Add(term, new(big.Float).Quo(f.P[i].b, big.NewFloat(2)))
+		term.Mul(term, dif)
+		term.Add(term, f.P[i].Y)
+		term.Mul(term, dif)
+		tmp.Add(tmp, term)
 	}
 	return tmp
 }
 
 func (f *TabulatedFunction) Clear() {
 	f.P = make([]TFPoint, 0)
-	f.ixmin = 0
-	f.ixmax = 0
-	f.iymin = 0
-	f.iymax = 0
-	f.istep = 0
+	f.ixmin.SetInt64(0)
+	f.ixmax.SetInt64(0)
+	f.iymin.SetInt64(0)
+	f.iymax.SetInt64(0)
+	f.istep.SetInt64(0)
 	f.changed = false
 }
 
@@ -450,8 +601,16 @@ func (f *TabulatedFunction) MorePoints() {
 		p2 := f.P[i+1]
 
 		// Add interpolated midpoint and then the next original point
-		midX := (p1.X + p2.X) / 2
-		newP = append(newP, TFPoint{X: midX, Y: f.F(midX), epoch: p2.epoch})
+		midX := new(big.Float).Add(p1.X, p2.X)
+		midX.Quo(midX, big.NewFloat(2))
+		newP = append(newP, TFPoint{
+			X:     midX,
+			Y:     f.F(midX),
+			epoch: p2.epoch,
+			b:     new(big.Float),
+			c:     new(big.Float),
+			d:     new(big.Float),
+		})
 		newP = append(newP, p2)
 	}
 
@@ -468,83 +627,98 @@ func (f *TabulatedFunction) Derivative() {
 		f.iOrder--
 	}
 	for i = range f.P {
-		f.P[i].Y = f.P[i].b
-		f.P[i].b = 2 * f.P[i].c
-		f.P[i].c = 3 * f.P[i].d
-		f.P[i].d = 0
+		f.P[i].Y.Set(f.P[i].b)
+		f.P[i].b.Mul(f.P[i].c, big.NewFloat(2))
+		f.P[i].c.Mul(f.P[i].d, big.NewFloat(3))
+		f.P[i].d.SetInt64(0)
 	}
 }
 
 func (f *TabulatedFunction) Integral() {
 	var i, j int
-	var acc, prev_acc, r float64
+	var acc, prev_acc, r *big.Float
 
 	if f.changed {
 		f.update_spline()
 	}
 	j = len(f.P) - 1
-	acc = 0
+	acc = new(big.Float)
+	prev_acc = new(big.Float)
 	if f.iOrder < 3 {
-		f.P[0].d = f.P[0].c / 3
-		f.P[0].c = f.P[0].b / 2
-		f.P[0].b = f.P[0].Y
-		f.P[0].Y = 0
+		f.P[0].d.Quo(f.P[0].c, big.NewFloat(3))
+		f.P[0].c.Quo(f.P[0].b, big.NewFloat(2))
+		f.P[0].b.Set(f.P[0].Y)
+		f.P[0].Y.SetInt64(0)
 		for i = 1; i <= j; i++ {
-			r = f.P[i].X - f.P[i-1].X
-			f.P[i].d = f.P[i].c / 3
-			f.P[i].c = f.P[i].b / 2
-			f.P[i].b = f.P[i].Y
-			f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i-1].c+r*f.P[i-1].d))
+			r = new(big.Float).Sub(f.P[i].X, f.P[i-1].X)
+			f.P[i].d.Quo(f.P[i].c, big.NewFloat(3))
+			f.P[i].c.Quo(f.P[i].b, big.NewFloat(2))
+			f.P[i].b.Set(f.P[i].Y)
+			// f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i-1].c+r*f.P[i-1].d))
+			term := new(big.Float).Mul(r, f.P[i-1].d)
+			term.Add(f.P[i-1].c, term)
+			term.Mul(r, term)
+			term.Add(f.P[i-1].b, term)
+			term.Mul(r, term)
+			f.P[i].Y.Add(f.P[i-1].Y, term)
 		}
 		f.iOrder++
 	} else {
-		prev_acc = f.P[0].d / 4
-		f.P[0].d = f.P[0].c / 3
-		f.P[0].c = f.P[0].b / 2
-		f.P[0].b = f.P[0].Y
-		f.P[0].Y = 0
+		prev_acc.Quo(f.P[0].d, big.NewFloat(4))
+		f.P[0].d.Quo(f.P[0].c, big.NewFloat(3))
+		f.P[0].c.Quo(f.P[0].b, big.NewFloat(2))
+		f.P[0].b.Set(f.P[0].Y)
+		f.P[0].Y.SetInt64(0)
 		for i = 1; i <= j; i++ {
-			r = f.P[i].X - f.P[i-1].X
-			acc = f.P[i].d / 4
-			f.P[i].d = f.P[i].c / 3
-			f.P[i].c = f.P[i].b / 2
-			f.P[i].b = f.P[i].Y
-			f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i].c+r*(f.P[i-1].d+r*prev_acc)))
-			prev_acc = acc
+			r = new(big.Float).Sub(f.P[i].X, f.P[i-1].X)
+			acc.Quo(f.P[i].d, big.NewFloat(4))
+			f.P[i].d.Quo(f.P[i].c, big.NewFloat(3))
+			f.P[i].c.Quo(f.P[i].b, big.NewFloat(2))
+			f.P[i].b.Set(f.P[i].Y)
+			// f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i].c+r*(f.P[i-1].d+r*prev_acc)))
+			term := new(big.Float).Mul(r, prev_acc)
+			term.Add(f.P[i-1].d, term)
+			term.Mul(r, term)
+			term.Add(f.P[i].c, term)
+			term.Mul(r, term)
+			term.Add(f.P[i-1].b, term)
+			term.Mul(r, term)
+			f.P[i].Y.Add(f.P[i-1].Y, term)
+			prev_acc.Set(acc)
 		}
 		f.changed = true
 	}
 }
 
-func (f *TabulatedFunction) GetStep() float64 {
+func (f *TabulatedFunction) GetStep() *big.Float {
 	if f.changed {
 		f.update_spline()
 	}
 	return f.istep
 }
 
-func (f *TabulatedFunction) GetXmin() float64 {
+func (f *TabulatedFunction) GetXmin() *big.Float {
 	if f.changed {
 		f.update_spline()
 	}
 	return f.ixmin
 }
 
-func (f *TabulatedFunction) GetXmax() float64 {
+func (f *TabulatedFunction) GetXmax() *big.Float {
 	if f.changed {
 		f.update_spline()
 	}
 	return f.ixmax
 }
 
-func (f *TabulatedFunction) GetYmin() float64 {
+func (f *TabulatedFunction) GetYmin() *big.Float {
 	if f.changed {
 		f.update_spline()
 	}
 	return f.iymin
 }
 
-func (f *TabulatedFunction) GetYmax() float64 {
+func (f *TabulatedFunction) GetYmax() *big.Float {
 	if f.changed {
 		f.update_spline()
 	}
@@ -573,7 +747,7 @@ func (f *TabulatedFunction) Epoch(epoch uint32) {
 		if a.epoch < epoch && b.epoch >= epoch {
 			return 1
 		}
-		return cmp.Compare(a.X, b.X)
+		return a.X.Cmp(b.X)
 	})
 	i := slices.IndexFunc(f.P, func(p TFPoint) bool {
 		return p.epoch < epoch
@@ -778,7 +952,20 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 	for i, p := range f.P {
 		fmt.Fprintf(ps, " %v\t%% %v", p.Y, i)
 		if i > 0 && i < len(f.P)-1 {
-			fmt.Fprintf(ps, " %v", f.P[i-1].Y+(f.P[i+1].Y-f.P[i-1].Y)*(f.P[i].X-f.P[i-1].X)/(f.P[i+1].X-f.P[i-1].X))
+			// f.P[i-1].Y+(f.P[i+1].Y-f.P[i-1].Y)*(f.P[i].X-f.P[i-1].X)/(f.P[i+1].X-f.P[i-1].X)
+			yPrev := f.P[i-1].Y
+			yNext := f.P[i+1].Y
+			xPrev := f.P[i-1].X
+			xNext := f.P[i+1].X
+			xCurr := f.P[i].X
+
+			dy := new(big.Float).Sub(yNext, yPrev)
+			dx1 := new(big.Float).Sub(xCurr, xPrev)
+			dx2 := new(big.Float).Sub(xNext, xPrev)
+			val := new(big.Float).Mul(dy, dx1)
+			val.Quo(val, dx2)
+			val.Add(yPrev, val)
+			fmt.Fprintf(ps, " %v", val)
 		}
 		fmt.Fprintf(ps, "\n")
 	}
