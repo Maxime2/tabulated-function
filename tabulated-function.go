@@ -10,6 +10,10 @@ import (
 type Trapolation int
 
 const (
+	Precision = 256
+)
+
+const (
 	TrapolationLinear   Trapolation = 0
 	TrapolationSpline   Trapolation = 1
 	TrapolationShift    Trapolation = 2
@@ -78,7 +82,7 @@ func (f *TabulatedFunction) F(xi *big.Float) *big.Float {
 func (f *TabulatedFunction) Trapolate(xi *big.Float, trapolation Trapolation) *big.Float {
 	l := len(f.P)
 	if l == 0 {
-		return big.NewFloat(1)
+		return big.NewFloat(1).SetPrec(Precision)
 	}
 	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
 		return a.X.Cmp(b.X)
@@ -143,7 +147,7 @@ func (f *TabulatedFunction) _interpolate(xi *big.Float, left, right int, trapola
 		// Determine if xi is closer to the left or right point.
 		// midpoint := (f.P[left].X + f.P[right].X) / 2
 		midpoint := new(big.Float).Add(f.P[left].X, f.P[right].X)
-		midpoint.Quo(midpoint, big.NewFloat(2))
+		midpoint.Quo(midpoint, big.NewFloat(2).SetPrec(Precision))
 
 		if xi.Cmp(midpoint) <= 0 {
 			// If closer to the left point, return the right point's Y value.
@@ -183,7 +187,7 @@ func (f *TabulatedFunction) _interpolate(xi *big.Float, left, right int, trapola
 			return new(big.Float).Set(f.P[right].Y)
 		}
 		res := new(big.Float).Add(f.P[left].Y, f.P[right].Y)
-		return res.Quo(res, big.NewFloat(2))
+		return res.Quo(res, big.NewFloat(2).SetPrec(Precision))
 
 	case TrapolationMinMax:
 		var v [2]*big.Float
@@ -210,12 +214,12 @@ func (f *TabulatedFunction) _interpolate(xi *big.Float, left, right int, trapola
 		v[1].Add(v[1], diff.Abs(diff))
 
 		avg := new(big.Float).Add(f.P[left].Y, f.P[right].Y)
-		avg.Quo(avg, big.NewFloat(2))
+		avg.Quo(avg, big.NewFloat(2).SetPrec(Precision))
 
 		if v[0].Cmp(v[1]) > 0 {
-			return avg.Add(f.iymin, avg).Quo(avg, big.NewFloat(2))
+			return avg.Add(f.iymin, avg).Quo(avg, big.NewFloat(2).SetPrec(Precision))
 		}
-		return avg.Add(f.iymax, avg).Quo(avg, big.NewFloat(2))
+		return avg.Add(f.iymax, avg).Quo(avg, big.NewFloat(2).SetPrec(Precision))
 
 	}
 	// This is unreachable if all Trapolation values are handled.
@@ -292,7 +296,7 @@ func (f *TabulatedFunction) update_spline() {
 			det = new(big.Float).Mul(x1, x2)
 			det.Mul(det, new(big.Float).Sub(x2, x1))
 			// det = 1 / det
-			det.Quo(big.NewFloat(1), det)
+			det.Quo(big.NewFloat(1).SetPrec(Precision), det)
 
 			// b = (y1*x2*x2 - y2*x1*x1) * det
 			t1 := new(big.Float).Mul(y1, x2)
@@ -316,18 +320,18 @@ func (f *TabulatedFunction) update_spline() {
 	for i = 1; i <= j-1; i++ {
 		// alpha[i] = 3/h[i]*(f.P[i+1].Y-f.P[i].Y) - 3/h[i-1]*(f.P[i].Y-f.P[i-1].Y)
 		t1 := new(big.Float).Sub(f.P[i+1].Y, f.P[i].Y)
-		t1.Mul(t1, big.NewFloat(3)).Quo(t1, h[i])
+		t1.Mul(t1, big.NewFloat(3).SetPrec(Precision)).Quo(t1, h[i])
 		t2 := new(big.Float).Sub(f.P[i].Y, f.P[i-1].Y)
-		t2.Mul(t2, big.NewFloat(3)).Quo(t2, h[i-1])
+		t2.Mul(t2, big.NewFloat(3).SetPrec(Precision)).Quo(t2, h[i-1])
 		alpha[i] = new(big.Float).Sub(t1, t2)
 	}
-	l[0] = big.NewFloat(1)
+	l[0] = big.NewFloat(1).SetPrec(Precision)
 	mu[0] = new(big.Float)
 	z[0] = new(big.Float)
 	for i = 1; i <= j-1; i++ {
 		// l[i] = 2*(f.P[i+1].X-f.P[i-1].X) - h[i-1]*mu[i-1]
 		t1 := new(big.Float).Sub(f.P[i+1].X, f.P[i-1].X)
-		t1.Mul(t1, big.NewFloat(2))
+		t1.Mul(t1, big.NewFloat(2).SetPrec(Precision))
 		t2 := new(big.Float).Mul(h[i-1], mu[i-1])
 		l[i] = new(big.Float).Sub(t1, t2)
 		// mu[i] = h[i] / l[i]
@@ -337,7 +341,7 @@ func (f *TabulatedFunction) update_spline() {
 		z[i] = new(big.Float).Sub(alpha[i], t3)
 		z[i].Quo(z[i], l[i])
 	}
-	l[j] = big.NewFloat(1)
+	l[j] = big.NewFloat(1).SetPrec(Precision)
 	z[j] = new(big.Float)
 	f.P[j].c = new(big.Float)
 	for i = j - 1; i >= 0; i-- {
@@ -348,14 +352,14 @@ func (f *TabulatedFunction) update_spline() {
 		// f.P[i].b = (f.P[i+1].Y-f.P[i].Y)/h[i] - h[i]*(f.P[i+1].c+2*f.P[i].c)/3
 		t2 := new(big.Float).Sub(f.P[i+1].Y, f.P[i].Y)
 		t2.Quo(t2, h[i])
-		t3 := new(big.Float).Mul(f.P[i].c, big.NewFloat(2))
+		t3 := new(big.Float).Mul(f.P[i].c, big.NewFloat(2).SetPrec(Precision))
 		t3.Add(f.P[i+1].c, t3)
-		t3.Mul(t3, h[i]).Quo(t3, big.NewFloat(3))
+		t3.Mul(t3, h[i]).Quo(t3, big.NewFloat(3).SetPrec(Precision))
 		f.P[i].b.Sub(t2, t3)
 
 		// f.P[i].d = (f.P[i+1].c - f.P[i].c) / 3 / h[i]
 		t4 := new(big.Float).Sub(f.P[i+1].c, f.P[i].c)
-		t4.Quo(t4, big.NewFloat(3))
+		t4.Quo(t4, big.NewFloat(3).SetPrec(Precision))
 		f.P[i].d.Quo(t4, h[i])
 	}
 }
@@ -375,9 +379,9 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn *big.Float, epoch uint32) *big.Float
 	f.changed = true
 
 	// Xn = math.Round(Xn*10000) / 10000
-	scale := big.NewFloat(10000)
+	scale := big.NewFloat(10000).SetPrec(Precision)
 	val := new(big.Float).Mul(Xn, scale)
-	half := big.NewFloat(0.5)
+	half := big.NewFloat(0.5).SetPrec(Precision)
 	if val.Sign() < 0 {
 		half.Neg(half)
 	}
@@ -393,7 +397,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn *big.Float, epoch uint32) *big.Float
 	if found {
 		//f.P[i].X = Xn
 		f.P[i].epoch = epoch
-		f.P[i].Y.Add(f.P[i].Y, Yn).Quo(f.P[i].Y, big.NewFloat(2))
+		f.P[i].Y.Add(f.P[i].Y, Yn).Quo(f.P[i].Y, big.NewFloat(2).SetPrec(Precision))
 		return new(big.Float).Set(f.P[i].Y)
 	}
 	f.P = slices.Insert(f.P, i, TFPoint{
@@ -444,8 +448,8 @@ func (f *TabulatedFunction) Smooth() {
 		h2.Add(h2, new(big.Float).Sub(f.P[i+1].X, f.P[i].X))
 
 		// d0 := (-3*f.P[i-1].Y + 4*f.P[i].Y - f.P[i+1].Y) / h2
-		d0 := new(big.Float).Mul(f.P[i-1].Y, big.NewFloat(-3))
-		d0.Add(d0, new(big.Float).Mul(f.P[i].Y, big.NewFloat(4)))
+		d0 := new(big.Float).Mul(f.P[i-1].Y, big.NewFloat(-3).SetPrec(Precision))
+		d0.Add(d0, new(big.Float).Mul(f.P[i].Y, big.NewFloat(4).SetPrec(Precision)))
 		d0.Sub(d0, f.P[i+1].Y)
 		d0.Quo(d0, h2)
 
@@ -454,26 +458,26 @@ func (f *TabulatedFunction) Smooth() {
 		d1.Quo(d1, h2)
 
 		// d2 := (f.P[i-1].Y - 4*f.P[i].Y + 3*f.P[i+1].Y) / h2
-		d2 := new(big.Float).Sub(f.P[i-1].Y, new(big.Float).Mul(f.P[i].Y, big.NewFloat(4)))
-		d2.Add(d2, new(big.Float).Mul(f.P[i+1].Y, big.NewFloat(3)))
+		d2 := new(big.Float).Sub(f.P[i-1].Y, new(big.Float).Mul(f.P[i].Y, big.NewFloat(4).SetPrec(Precision)))
+		d2.Add(d2, new(big.Float).Mul(f.P[i+1].Y, big.NewFloat(3).SetPrec(Precision)))
 		d2.Quo(d2, h2)
 
 		// d := (d0 + d1 + d2) / 3
-		d := new(big.Float).Add(d0, d1).Add(d0, d2).Quo(d0, big.NewFloat(3))
+		d := new(big.Float).Add(d0, d1).Add(d0, d2).Quo(d0, big.NewFloat(3).SetPrec(Precision))
 
 		// f1_1 := (d*h2 + 3*f.P[i-1].Y + f.P[i+1].Y) / 4
 		f1_1 := new(big.Float).Mul(d, h2)
-		f1_1.Add(f1_1, new(big.Float).Mul(f.P[i-1].Y, big.NewFloat(3)))
-		f1_1.Add(f1_1, f.P[i+1].Y).Quo(f1_1, big.NewFloat(4))
+		f1_1.Add(f1_1, new(big.Float).Mul(f.P[i-1].Y, big.NewFloat(3).SetPrec(Precision)))
+		f1_1.Add(f1_1, f.P[i+1].Y).Quo(f1_1, big.NewFloat(4).SetPrec(Precision))
 
 		// f1_2 := (d*h2 - f.P[i-1].Y - 3*f.P[i+1].Y) / -4
 		f1_2 := new(big.Float).Mul(d, h2)
 		f1_2.Sub(f1_2, f.P[i-1].Y)
-		f1_2.Sub(f1_2, new(big.Float).Mul(f.P[i+1].Y, big.NewFloat(3)))
-		f1_2.Quo(f1_2, big.NewFloat(-4))
+		f1_2.Sub(f1_2, new(big.Float).Mul(f.P[i+1].Y, big.NewFloat(3).SetPrec(Precision)))
+		f1_2.Quo(f1_2, big.NewFloat(-4).SetPrec(Precision))
 
 		// f.P[i].Y = (f1_1 + f1_2) / 2
-		f.P[i].Y.Add(f1_1, f1_2).Quo(f.P[i].Y, big.NewFloat(2))
+		f.P[i].Y.Add(f1_1, f1_2).Quo(f.P[i].Y, big.NewFloat(2).SetPrec(Precision))
 	}
 	f.changed = true
 }
@@ -557,10 +561,10 @@ func (f *TabulatedFunction) Integrate() *big.Float {
 		dif = new(big.Float).Sub(f.P[i+1].X, f.P[i].X)
 		// term = f.P[i].Y + dif*(f.P[i].b/2+dif*(f.P[i].c/3+dif*f.P[i].d/4))
 		term := new(big.Float).Mul(f.P[i].d, dif)
-		term.Quo(term, big.NewFloat(4))
-		term.Add(term, new(big.Float).Quo(f.P[i].c, big.NewFloat(3)))
+		term.Quo(term, big.NewFloat(4).SetPrec(Precision))
+		term.Add(term, new(big.Float).Quo(f.P[i].c, big.NewFloat(3).SetPrec(Precision)))
 		term.Mul(term, dif)
-		term.Add(term, new(big.Float).Quo(f.P[i].b, big.NewFloat(2)))
+		term.Add(term, new(big.Float).Quo(f.P[i].b, big.NewFloat(2).SetPrec(Precision)))
 		term.Mul(term, dif)
 		term.Add(term, f.P[i].Y)
 		term.Mul(term, dif)
@@ -602,7 +606,7 @@ func (f *TabulatedFunction) MorePoints() {
 
 		// Add interpolated midpoint and then the next original point
 		midX := new(big.Float).Add(p1.X, p2.X)
-		midX.Quo(midX, big.NewFloat(2))
+		midX.Quo(midX, big.NewFloat(2).SetPrec(Precision))
 		newP = append(newP, TFPoint{
 			X:     midX,
 			Y:     f.F(midX),
@@ -628,8 +632,8 @@ func (f *TabulatedFunction) Derivative() {
 	}
 	for i = range f.P {
 		f.P[i].Y.Set(f.P[i].b)
-		f.P[i].b.Mul(f.P[i].c, big.NewFloat(2))
-		f.P[i].c.Mul(f.P[i].d, big.NewFloat(3))
+		f.P[i].b.Mul(f.P[i].c, big.NewFloat(2).SetPrec(Precision))
+		f.P[i].c.Mul(f.P[i].d, big.NewFloat(3).SetPrec(Precision))
 		f.P[i].d.SetInt64(0)
 	}
 }
@@ -645,14 +649,14 @@ func (f *TabulatedFunction) Integral() {
 	acc = new(big.Float)
 	prev_acc = new(big.Float)
 	if f.iOrder < 3 {
-		f.P[0].d.Quo(f.P[0].c, big.NewFloat(3))
-		f.P[0].c.Quo(f.P[0].b, big.NewFloat(2))
+		f.P[0].d.Quo(f.P[0].c, big.NewFloat(3).SetPrec(Precision))
+		f.P[0].c.Quo(f.P[0].b, big.NewFloat(2).SetPrec(Precision))
 		f.P[0].b.Set(f.P[0].Y)
 		f.P[0].Y.SetInt64(0)
 		for i = 1; i <= j; i++ {
 			r = new(big.Float).Sub(f.P[i].X, f.P[i-1].X)
-			f.P[i].d.Quo(f.P[i].c, big.NewFloat(3))
-			f.P[i].c.Quo(f.P[i].b, big.NewFloat(2))
+			f.P[i].d.Quo(f.P[i].c, big.NewFloat(3).SetPrec(Precision))
+			f.P[i].c.Quo(f.P[i].b, big.NewFloat(2).SetPrec(Precision))
 			f.P[i].b.Set(f.P[i].Y)
 			// f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i-1].c+r*f.P[i-1].d))
 			term := new(big.Float).Mul(r, f.P[i-1].d)
@@ -664,16 +668,16 @@ func (f *TabulatedFunction) Integral() {
 		}
 		f.iOrder++
 	} else {
-		prev_acc.Quo(f.P[0].d, big.NewFloat(4))
-		f.P[0].d.Quo(f.P[0].c, big.NewFloat(3))
-		f.P[0].c.Quo(f.P[0].b, big.NewFloat(2))
+		prev_acc.Quo(f.P[0].d, big.NewFloat(4).SetPrec(Precision))
+		f.P[0].d.Quo(f.P[0].c, big.NewFloat(3).SetPrec(Precision))
+		f.P[0].c.Quo(f.P[0].b, big.NewFloat(2).SetPrec(Precision))
 		f.P[0].b.Set(f.P[0].Y)
 		f.P[0].Y.SetInt64(0)
 		for i = 1; i <= j; i++ {
 			r = new(big.Float).Sub(f.P[i].X, f.P[i-1].X)
-			acc.Quo(f.P[i].d, big.NewFloat(4))
-			f.P[i].d.Quo(f.P[i].c, big.NewFloat(3))
-			f.P[i].c.Quo(f.P[i].b, big.NewFloat(2))
+			acc.Quo(f.P[i].d, big.NewFloat(4).SetPrec(Precision))
+			f.P[i].d.Quo(f.P[i].c, big.NewFloat(3).SetPrec(Precision))
+			f.P[i].c.Quo(f.P[i].b, big.NewFloat(2).SetPrec(Precision))
 			f.P[i].b.Set(f.P[i].Y)
 			// f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i].c+r*(f.P[i-1].d+r*prev_acc)))
 			term := new(big.Float).Mul(r, prev_acc)

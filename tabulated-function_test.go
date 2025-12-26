@@ -17,7 +17,7 @@ func almostEqual(a, b float64) bool {
 }
 
 func bf(f float64) *big.Float {
-	return big.NewFloat(f)
+	return big.NewFloat(f).SetPrec(Precision)
 }
 
 func fl(b *big.Float) float64 {
