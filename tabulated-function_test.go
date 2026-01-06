@@ -412,3 +412,36 @@ func TestMultiply(t *testing.T) {
 		t.Errorf("F(5) after multiply is %v, want 10.0", f1.F(bf(5)))
 	}
 }
+
+func TestSinInterpolation(t *testing.T) {
+	f := New()
+	// Default is Order 3 (Cubic Spline)
+
+	// Sample sin(x) from 0 to 2*Pi
+	nPoints := 20
+	rangeMax := 2 * math.Pi
+	step := rangeMax / float64(nPoints)
+
+	for i := 0; i <= nPoints; i++ {
+		x := float64(i) * step
+		// Pre-round x to 4 decimal places because AddPoint rounds X coordinates.
+		// This ensures that the Y value corresponds exactly to the stored X.
+		x = math.Round(x*10000) / 10000
+		f.AddPoint(bf(x), bf(math.Sin(x)), 0)
+	}
+
+	// Verify interpolation at intermediate points
+	for i := 0; i < nPoints; i++ {
+		x := (float64(i) + 0.5) * step
+		yExact := math.Sin(x)
+		yInterp := fl(f.F(bf(x)))
+
+		// With 20 points over 2*Pi, step size h is approx 0.314.
+		// We expect good accuracy.
+		threshold := 1e-3
+		if math.Abs(yInterp-yExact) > threshold {
+			t.Errorf("Interpolation error at x=%.4f: got %.6f, want %.6f, diff %.6e",
+				x, yInterp, yExact, math.Abs(yInterp-yExact))
+		}
+	}
+}
