@@ -10,7 +10,7 @@ import (
 type Trapolation int
 
 const (
-	Precision = 256
+	Precision = 128
 )
 
 const (
@@ -391,7 +391,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn *big.Float, epoch uint32) *big.Float
 	XnRounded := new(big.Float).SetInt(intVal)
 	XnRounded.Quo(XnRounded, scale)
 
-	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
+	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: XnRounded}, func(a, b TFPoint) int {
 		return a.X.Cmp(b.X)
 	})
 	if found {
