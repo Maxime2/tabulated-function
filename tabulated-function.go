@@ -10,7 +10,7 @@ import (
 type Trapolation int
 
 const (
-	Precision = 128
+	Precision = 64
 )
 
 const (

@@ -445,3 +445,21 @@ func TestSinInterpolation(t *testing.T) {
 		}
 	}
 }
+
+func TestAddPointRoundingCollision(t *testing.T) {
+	f := New()
+	// Add a point at 1.0
+	f.AddPoint(bf(1.0), bf(10.0), 0)
+
+	// Add a point that is extremely close to 1.0, such that it rounds to the same 4-decimal value.
+	// 1.00004 rounds to 1.0000.
+	f.AddPoint(bf(1.00004), bf(20.0), 0)
+
+	// Check number of points. Should be 1.
+	if f.GetNdots() != 1 {
+		t.Errorf("Expected 1 point after adding close points, got %d", f.GetNdots())
+	}
+
+	// Trigger update_spline to ensure no panic (division by zero if duplicates exist)
+	f.F(bf(1.0))
+}
