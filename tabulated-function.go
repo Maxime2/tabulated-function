@@ -426,24 +426,43 @@ func (f *TabulatedFunction) Smooth() {
 }
 
 func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
-	var i int
-	var Yt []float64
-
 	if f.changed {
 		f.update_spline()
 	}
-	Yt = make([]float64, len(by.P))
-	for i = range by.P {
-		Yt[i] = by.P[i].Y * f.F(by.P[i].X)
+	if by.changed {
+		by.update_spline()
 	}
 
-	for i = range by.P {
-		f.AddPoint(by.P[i].X, Yt[i], by.P[i].Epoch)
+	// Collect all unique X coordinates from both functions to define the new set of points.
+	xCoords := make(map[float64]struct{})
+	for _, p := range f.P {
+		xCoords[p.X] = struct{}{}
+	}
+	for _, p := range by.P {
+		xCoords[p.X] = struct{}{}
 	}
 
-	for i = range f.P {
-		f.P[i].Y *= by.F(f.P[i].X)
+	newPoints := make([]TFPoint, 0, len(xCoords))
+	for x := range xCoords {
+		// Calculate the new Y value using the original, unmodified functions.
+		newY := f.F(x) * by.F(x)
+		// The epoch of the new point is not clearly defined by the multiplication.
+		// We'll use 0 as a neutral value.
+		newPoints = append(newPoints, TFPoint{X: x, Y: newY, Epoch: 0})
 	}
+
+	// Sort the new points by X coordinate before replacing the old slice.
+	slices.SortFunc(newPoints, func(a, b TFPoint) int {
+		if a.X < b.X {
+			return -1
+		}
+		if a.X > b.X {
+			return 1
+		}
+		return 0
+	})
+
+	f.P = newPoints
 	f.changed = true
 }
 
