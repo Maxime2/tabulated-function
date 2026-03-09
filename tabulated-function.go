@@ -20,7 +20,7 @@ const (
 type TFPoint struct {
 	b, c, d float64
 	X, Y    float64
-	epoch   uint32
+	Epoch   uint32
 }
 
 type TabulatedFunction struct {
@@ -351,14 +351,14 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	})
 	if found {
 		//f.P[i].X = Xn
-		f.P[i].epoch = epoch
+		f.P[i].Epoch = epoch
 		f.P[i].Y = (f.P[i].Y + Yn) / 2.0
 		return f.P[i].Y
 	}
 	f.P = slices.Insert(f.P, i, TFPoint{
 		X:     XnRounded,
 		Y:     Yn,
-		epoch: epoch,
+		Epoch: epoch,
 		b:     0,
 		c:     0,
 		d:     0,
@@ -372,7 +372,7 @@ func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 	f.iymin = new_Y
 	f.iymax = f.iymin
 	f.P = append([]TFPoint{}, TFPoint{
-		X: f.ixmin, Y: f.iymin, epoch: 0,
+		X: f.ixmin, Y: f.iymin, Epoch: 0,
 		b: 0, c: 0, d: 0,
 	})
 	f.istep = f.ixmax - f.ixmin
@@ -437,12 +437,12 @@ func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 		Yt[i] = by.P[i].Y * f.F(by.P[i].X)
 	}
 
-	for i = range f.P {
-		f.P[i].Y *= by.F(f.P[i].X)
+	for i = range by.P {
+		f.AddPoint(by.P[i].X, Yt[i], by.P[i].Epoch)
 	}
 
-	for i = range by.P {
-		f.AddPoint(by.P[i].X, Yt[i], by.P[i].epoch)
+	for i = range f.P {
+		f.P[i].Y *= by.F(f.P[i].X)
 	}
 	f.changed = true
 }
@@ -477,7 +477,7 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 			b:     p.b,
 			c:     p.c,
 			d:     p.d,
-			epoch: p.epoch,
+			Epoch: p.Epoch,
 		}
 	}
 	f.changed = true
@@ -485,7 +485,7 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 
 func (f *TabulatedFunction) Merge(m *TabulatedFunction) {
 	for i := range m.P {
-		f.AddPoint(m.P[i].X, m.P[i].Y, m.P[i].epoch)
+		f.AddPoint(m.P[i].X, m.P[i].Y, m.P[i].Epoch)
 	}
 	f.changed = true
 }
@@ -548,7 +548,7 @@ func (f *TabulatedFunction) MorePoints() {
 		newP = append(newP, TFPoint{
 			X:     midX,
 			Y:     f.F(midX),
-			epoch: p2.epoch,
+			Epoch: p2.Epoch,
 			b:     0,
 			c:     0,
 			d:     0,
@@ -678,10 +678,10 @@ func (f *TabulatedFunction) String() string {
 
 func (f *TabulatedFunction) Epoch(epoch uint32) {
 	slices.SortFunc(f.P, func(a, b TFPoint) int {
-		if a.epoch >= epoch && b.epoch < epoch {
+		if a.Epoch >= epoch && b.Epoch < epoch {
 			return -1
 		}
-		if a.epoch < epoch && b.epoch >= epoch {
+		if a.Epoch < epoch && b.Epoch >= epoch {
 			return 1
 		}
 		if a.X < b.X {
@@ -693,7 +693,7 @@ func (f *TabulatedFunction) Epoch(epoch uint32) {
 		return 0
 	})
 	i := slices.IndexFunc(f.P, func(p TFPoint) bool {
-		return p.epoch < epoch
+		return p.Epoch < epoch
 	})
 	if i >= 0 {
 		f.P = slices.Delete(f.P, i, len(f.P))

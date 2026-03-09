@@ -259,6 +259,7 @@ func TestJSON(t *testing.T) {
 	f1.AddPoint(0, 0, 1)
 	f1.AddPoint(1, 1, 2)
 	f1.SetOrder(2)
+	f1.SetTrapolation(TrapolationLinear)
 
 	jsonData, err := json.Marshal(f1)
 	if err != nil {
@@ -271,11 +272,19 @@ func TestJSON(t *testing.T) {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
 
+	if f1.trapolation != f2.trapolation {
+		t.Errorf("Trapolation mismatch: original=%v, unmarshaled=%v", f1.trapolation, f2.trapolation)
+	}
 	if f1.iOrder != f2.iOrder {
 		t.Errorf("Order mismatch: original=%d, unmarshaled=%d", f1.iOrder, f2.iOrder)
 	}
 	if len(f1.P) != len(f2.P) {
 		t.Fatalf("Points count mismatch: original=%d, unmarshaled=%d", len(f1.P), len(f2.P))
+	}
+	for i := range f1.P {
+		if !almostEqual(f1.P[i].X, f2.P[i].X) || !almostEqual(f1.P[i].Y, f2.P[i].Y) || f1.P[i].Epoch != f2.P[i].Epoch {
+			t.Errorf("Point mismatch at index %d:\nOriginal: %+v\nUnmarshaled: %+v", i, f1.P[i], f2.P[i])
+		}
 	}
 }
 

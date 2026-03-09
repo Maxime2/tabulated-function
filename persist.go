@@ -7,14 +7,16 @@ import (
 
 // Dump is a serializable representation of a TabulatedFunction.
 type Dump struct {
-	Order  int       `json:"order"`
-	Points []TFPoint `json:"points"`
+	Order       int         `json:"order"`
+	Trapolation Trapolation `json:"trapolation"`
+	Points      []TFPoint   `json:"points"`
 }
 
 // FromDump restores a tabulated function from a dump.
 // It ensures the points are sorted by X before updating the spline.
 func (f *TabulatedFunction) FromDump(d *Dump) {
 	f.iOrder = d.Order
+	f.trapolation = d.Trapolation
 
 	f.P = make([]TFPoint, len(d.Points))
 	copy(f.P, d.Points)
@@ -44,8 +46,9 @@ func (f *TabulatedFunction) Dump() *Dump {
 	points := make([]TFPoint, len(f.P))
 	copy(points, f.P)
 	return &Dump{
-		Order:  f.iOrder,
-		Points: points,
+		Order:       f.iOrder,
+		Trapolation: f.trapolation,
+		Points:      points,
 	}
 }
 
@@ -64,10 +67,6 @@ func (f *TabulatedFunction) UnmarshalJSON(bytes []byte) error {
 	// The json.Unmarshal call on the parent struct has already allocated
 	// a zero-value TabulatedFunction for us. We just need to populate it.
 	f.FromDump(&dump)
-
-	// Set defaults for a newly unmarshaled function.
-	// `update_spline` is called within FromDump.
-	f.trapolation = TrapolationSpline
 
 	return nil
 }
