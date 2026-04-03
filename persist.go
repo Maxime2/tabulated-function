@@ -2,6 +2,7 @@ package tabulatedfunction
 
 import (
 	"encoding/json"
+	"math"
 	"slices"
 )
 
@@ -20,6 +21,13 @@ func (f *TabulatedFunction) FromDump(d *Dump) {
 
 	f.P = make([]TFPoint, len(d.Points))
 	copy(f.P, d.Points)
+	// Ensure points follow the same rounding logic as AddPoint to prevent
+	// numerical instability in spline calculation.
+	f.P = make([]TFPoint, 0, len(d.Points))
+	for _, p := range d.Points {
+		p.X = math.Round(p.X*10000) / 10000
+		f.P = append(f.P, p)
+	}
 
 	// Ensure points are sorted, as they may come from an untrusted source.
 	slices.SortFunc(f.P, func(a, b TFPoint) int {
@@ -31,6 +39,24 @@ func (f *TabulatedFunction) FromDump(d *Dump) {
 		}
 		return 0
 	})
+
+	// Deduplicate points with the same X coordinate to avoid division by zero in update_spline.
+	if len(f.P) > 1 {
+		k := 0
+		for i := 1; i < len(f.P); i++ {
+			if f.P[i].X == f.P[k].X {
+				// Average Y values and take the highest epoch, matching AddPoint behavior.
+				f.P[k].Y = (f.P[k].Y + f.P[i].Y) / 2.0
+				if f.P[i].Epoch > f.P[k].Epoch {
+					f.P[k].Epoch = f.P[i].Epoch
+				}
+			} else {
+				k++
+				f.P[k] = f.P[i]
+			}
+		}
+		f.P = f.P[:k+1]
+	}
 
 	f.ixmin = 0
 	f.ixmax = 0
