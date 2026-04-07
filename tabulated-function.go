@@ -26,18 +26,19 @@ type TFPoint struct {
 type TabulatedFunction struct {
 	ixmin, ixmax, iymin, iymax float64
 	istep                      float64
-	iOrder                     int
 	changed                    bool
-	trapolation                Trapolation
-	//
-	P []TFPoint
+	Order                      int
+	Trapolation                Trapolation
+	Precision                  int
+	P                          []TFPoint
 }
 
 // Create
 func New() *TabulatedFunction {
 	return &TabulatedFunction{
-		iOrder:      3,
-		trapolation: TrapolationSpline,
+		Order:       3,
+		Trapolation: TrapolationSpline,
+		Precision:   10000,
 		changed:     false,
 	}
 }
@@ -73,7 +74,7 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 		left = k - 1
 	}
 
-	return f._interpolate(xi, left, right, f.trapolation)
+	return f._interpolate(xi, left, right, f.Trapolation)
 }
 
 func (f *TabulatedFunction) Trapolate(xi float64, trapolation Trapolation) float64 {
@@ -157,7 +158,7 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 		// This makes its extrapolation behavior consistent with TrapolationLinear
 		// and fixes an inconsistency where left-side extrapolated linearly while
 		// the right-side clamped.
-		if f.iOrder == 1 && (left == right || left < 0) {
+		if f.Order == 1 && (left == right || left < 0) {
 			return f.P[right].Y
 		}
 
@@ -255,20 +256,20 @@ func (f *TabulatedFunction) update_spline() {
 		f.P[i].c = 0
 		f.P[i].d = 0
 	}
-	if f.iOrder == 0 {
+	if f.Order == 0 {
 		return
 	}
 	h = make([]float64, j+1)
 	for i = 0; i <= j-1; i++ {
 		h[i] = f.P[i+1].X - f.P[i].X
 	}
-	if f.iOrder == 1 {
+	if f.Order == 1 {
 		for i = 0; i <= j-1; i++ {
 			f.P[i].b = (f.P[i+1].Y - f.P[i].Y) / h[i]
 		}
 		return
 	}
-	if f.iOrder == 2 {
+	if f.Order == 2 {
 		for i = 0; i <= j-2; i++ {
 			x1 = f.P[i+1].X - f.P[i].X
 			x2 = f.P[i+2].X - f.P[i].X
@@ -324,12 +325,17 @@ func (f *TabulatedFunction) update_spline() {
 }
 
 func (f *TabulatedFunction) SetOrder(new_value int) {
-	f.iOrder = new_value
+	f.Order = new_value
 	f.changed = true
 }
 
 func (f *TabulatedFunction) SetTrapolation(new_value Trapolation) {
-	f.trapolation = new_value
+	f.Trapolation = new_value
+	f.changed = true
+}
+
+func (f *TabulatedFunction) SetPrecision(new_value int) {
+	f.Precision = new_value
 	f.changed = true
 }
 
@@ -337,8 +343,8 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	var i int
 	f.changed = true
 
-	// Xn = math.Round(Xn*10000) / 10000
-	XnRounded := math.Round(Xn*10000) / 10000
+	scale := float64(f.Precision)
+	XnRounded := math.Round(Xn*scale) / scale
 
 	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: XnRounded}, func(a, b TFPoint) int {
 		if a.X < b.X {
@@ -486,7 +492,7 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 	f.iymin = s.iymin
 	f.iymax = s.iymax
 	f.istep = s.istep
-	f.iOrder = s.iOrder
+	f.Order = s.Order
 
 	f.P = make([]TFPoint, len(s.P))
 	for i, p := range s.P {
@@ -584,8 +590,8 @@ func (f *TabulatedFunction) Derivative() {
 	if f.changed {
 		f.update_spline()
 	}
-	if f.iOrder > 0 {
-		f.iOrder--
+	if f.Order > 0 {
+		f.Order--
 	}
 	for i = range f.P {
 		f.P[i].Y = f.P[i].b
@@ -605,7 +611,7 @@ func (f *TabulatedFunction) Integral() {
 	j = len(f.P) - 1
 	acc = 0
 	prev_acc = 0
-	if f.iOrder < 3 {
+	if f.Order < 3 {
 		f.P[0].d = f.P[0].c / 3.0
 		f.P[0].c = f.P[0].b / 2.0
 		f.P[0].b = f.P[0].Y
@@ -621,7 +627,7 @@ func (f *TabulatedFunction) Integral() {
 			term = (f.P[i-1].b + term) * r
 			f.P[i].Y = f.P[i-1].Y + term
 		}
-		f.iOrder++
+		f.Order++
 	} else {
 		prev_acc = f.P[0].d / 4.0
 		f.P[0].d = f.P[0].c / 3.0
@@ -687,7 +693,7 @@ func (f *TabulatedFunction) GetNdots() int {
 
 func (f *TabulatedFunction) String() string {
 	s := "\nTabulated function:\n"
-	s = fmt.Sprintf("%s\tiOrder: %v; changed: %v\n", s, f.iOrder, f.changed)
+	s = fmt.Sprintf("%s\tiOrder: %v; changed: %v\n", s, f.Order, f.changed)
 	s = fmt.Sprintf("%s\tixmin: %v; ixmax: %v\n", s, f.ixmin, f.ixmax)
 	s = fmt.Sprintf("%s\tiymin: %v; iymax: %v\n", s, f.iymin, f.iymax)
 	s = fmt.Sprintf("%s\tistep: %v\n", s, f.istep)

@@ -20,11 +20,11 @@ func TestNew(t *testing.T) {
 	if f == nil {
 		t.Fatal("New() returned nil")
 	}
-	if f.iOrder != 3 {
-		t.Errorf("Expected default order to be 3, got %d", f.iOrder)
+	if f.Order != 3 {
+		t.Errorf("Expected default order to be 3, got %d", f.Order)
 	}
-	if f.trapolation != TrapolationSpline {
-		t.Errorf("Expected default trapolation to be TrapolationSpline, got %v", f.trapolation)
+	if f.Trapolation != TrapolationSpline {
+		t.Errorf("Expected default trapolation to be TrapolationSpline, got %v", f.Trapolation)
 	}
 	if len(f.P) != 0 {
 		t.Errorf("Expected new function to have 0 points, got %d", len(f.P))
@@ -272,11 +272,11 @@ func TestJSON(t *testing.T) {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
 
-	if f1.trapolation != f2.trapolation {
-		t.Errorf("Trapolation mismatch: original=%v, unmarshaled=%v", f1.trapolation, f2.trapolation)
+	if f1.Trapolation != f2.Trapolation {
+		t.Errorf("Trapolation mismatch: original=%v, unmarshaled=%v", f1.Trapolation, f2.Trapolation)
 	}
-	if f1.iOrder != f2.iOrder {
-		t.Errorf("Order mismatch: original=%d, unmarshaled=%d", f1.iOrder, f2.iOrder)
+	if f1.Order != f2.Order {
+		t.Errorf("Order mismatch: original=%d, unmarshaled=%d", f1.Order, f2.Order)
 	}
 	if len(f1.P) != len(f2.P) {
 		t.Fatalf("Points count mismatch: original=%d, unmarshaled=%d", len(f1.P), len(f2.P))

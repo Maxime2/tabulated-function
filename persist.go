@@ -11,13 +11,15 @@ type Dump struct {
 	Order       int         `json:"order"`
 	Trapolation Trapolation `json:"trapolation"`
 	Points      []TFPoint   `json:"points"`
+	Precision   int         `json:"precision"`
 }
 
 // FromDump restores a tabulated function from a dump.
 // It ensures the points are sorted by X before updating the spline.
 func (f *TabulatedFunction) FromDump(d *Dump) {
-	f.iOrder = d.Order
-	f.trapolation = d.Trapolation
+	f.Order = d.Order
+	f.Trapolation = d.Trapolation
+	f.Precision = d.Precision
 
 	f.P = make([]TFPoint, len(d.Points))
 	copy(f.P, d.Points)
@@ -25,7 +27,7 @@ func (f *TabulatedFunction) FromDump(d *Dump) {
 	// numerical instability in spline calculation.
 	f.P = make([]TFPoint, 0, len(d.Points))
 	for _, p := range d.Points {
-		p.X = math.Round(p.X*10000) / 10000
+		p.X = math.Round(p.X*float64(f.Precision)) / float64(f.Precision)
 		f.P = append(f.P, p)
 	}
 
@@ -72,8 +74,9 @@ func (f *TabulatedFunction) Dump() *Dump {
 	points := make([]TFPoint, len(f.P))
 	copy(points, f.P)
 	return &Dump{
-		Order:       f.iOrder,
-		Trapolation: f.trapolation,
+		Order:       f.Order,
+		Trapolation: f.Trapolation,
+		Precision:   f.Precision,
 		Points:      points,
 	}
 }
