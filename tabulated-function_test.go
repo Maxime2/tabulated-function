@@ -3,6 +3,7 @@ package tabulatedfunction
 import (
 	"encoding/json"
 	"math"
+	"os"
 	"testing"
 )
 
@@ -135,8 +136,6 @@ func TestOrders(t *testing.T) {
 		if !almostEqual(f.F(-1), 0) { // Extrapolation
 			t.Errorf("F(-1) = %v; want 0", f.F(-1))
 		}
-		// This test exposes a bug in right-side extrapolation for order 0.
-		// It returns f.P[l-2].Y instead of f.P[l-1].Y.
 		if !almostEqual(f.F(3), 0) { // Extrapolation
 			t.Errorf("F(3) = %v; want 0", f.F(3))
 		}
@@ -168,7 +167,6 @@ func TestOrders(t *testing.T) {
 	})
 }
 
-// This test exposes a bug in the TrapolationLinear implementation, which fails to interpolate.
 func TestTrapolationLinear(t *testing.T) {
 	f := New()
 	f.SetTrapolation(TrapolationLinear)
@@ -374,7 +372,7 @@ func TestSmooth(t *testing.T) {
 	y_after := f.P[1].Y
 
 	if almostEqual(y_before, y_after) {
-		t.Error("Smooth() did not change the Y value of the middle point")
+		t.Errorf("Smooth() did not change the Y value of the middle point. Before: %v, After: %v", y_before, y_after)
 	}
 	// Based on manual calculation of the implemented formula:
 	expected_y := (2.0 + 2.0) / 2.0
@@ -406,6 +404,118 @@ func TestMultiply(t *testing.T) {
 	}
 }
 
+func TestMultiplyByScalar(t *testing.T) {
+	f := New()
+	f.AddPoint(0, 10, 0)
+	f.AddPoint(1, 20, 0)
+	f.SetOrder(1) // Linear interpolation
+
+	scalar := 2.0
+	f.MultiplyByScalar(scalar)
+
+	// Force update_spline to ensure internal min/max are updated
+	_ = f.F(0.5)
+
+	if !almostEqual(f.F(0), 20.0) {
+		t.Errorf("F(0) after MultiplyByScalar = %v; want 20.0", f.F(0))
+	}
+	if !almostEqual(f.F(1), 40.0) {
+		t.Errorf("F(1) after MultiplyByScalar = %v; want 40.0", f.F(1))
+	}
+	if !almostEqual(f.F(0.5), 30.0) { // (10*2 + 20*2)/2 = 30
+		t.Errorf("F(0.5) after MultiplyByScalar = %v; want 30.0", f.F(0.5))
+	}
+	if !almostEqual(f.GetYmin(), 20.0) {
+		t.Errorf("GetYmin() after MultiplyByScalar = %v; want 20.0", f.GetYmin())
+	}
+	if !almostEqual(f.GetYmax(), 40.0) {
+		t.Errorf("GetYmax() after MultiplyByScalar = %v; want 40.0", f.GetYmax())
+	}
+}
+
+func TestAssign(t *testing.T) {
+	source := New()
+	source.AddPoint(1, 10, 1)
+	source.AddPoint(2, 20, 2)
+	source.SetOrder(1)
+	source.SetTrapolation(TrapolationLinear)
+	_ = source.F(1.5) // Force update_spline to set ixmin/max/ymin/max/istep
+
+	dest := New()
+	dest.Assign(source)
+
+	if dest.Order != source.Order {
+		t.Errorf("Order mismatch: dest=%d, source=%d", dest.Order, source.Order)
+	}
+	if dest.Trapolation != source.Trapolation {
+		t.Errorf("Trapolation mismatch: dest=%v, source=%v", dest.Trapolation, source.Trapolation)
+	}
+	if len(dest.P) != len(source.P) {
+		t.Fatalf("Points count mismatch: dest=%d, source=%d", len(dest.P), len(source.P))
+	}
+	for i := range source.P {
+		if !almostEqual(dest.P[i].X, source.P[i].X) ||
+			!almostEqual(dest.P[i].Y, source.P[i].Y) ||
+			dest.P[i].Epoch != source.P[i].Epoch ||
+			!almostEqual(dest.P[i].b, source.P[i].b) ||
+			!almostEqual(dest.P[i].c, source.P[i].c) ||
+			!almostEqual(dest.P[i].d, source.P[i].d) {
+			t.Errorf("Point mismatch at index %d:\nSource: %+v\nDest: %+v", i, source.P[i], dest.P[i])
+		}
+	}
+	// Check internal state variables (will trigger update_spline in dest again, but values should be consistent)
+	if !almostEqual(dest.GetXmin(), source.GetXmin()) {
+		t.Errorf("Xmin mismatch: dest=%v, source=%v", dest.GetXmin(), source.GetXmin())
+	}
+	if !almostEqual(dest.GetXmax(), source.GetXmax()) {
+		t.Errorf("Xmax mismatch: dest=%v, source=%v", dest.GetXmax(), source.GetXmax())
+	}
+	if !almostEqual(dest.GetYmin(), source.GetYmin()) {
+		t.Errorf("Ymin mismatch: dest=%v, source=%v", dest.GetYmin(), source.GetYmin())
+	}
+	if !almostEqual(dest.GetYmax(), source.GetYmax()) {
+		t.Errorf("Ymax mismatch: dest=%v, source=%v", dest.GetYmax(), source.GetYmax())
+	}
+	if !almostEqual(dest.GetStep(), source.GetStep()) {
+		t.Errorf("Step mismatch: dest=%v, source=%v", dest.GetStep(), source.GetStep())
+	}
+}
+
+func TestMerge(t *testing.T) {
+	f1 := New()
+	f1.AddPoint(0, 0, 0)
+	f1.AddPoint(2, 20, 0)
+
+	f2 := New()
+	f2.AddPoint(1, 10, 0)
+	f2.AddPoint(3, 30, 0)
+	f2.AddPoint(2, 22, 1) // Point with same X as in f1, should be averaged
+
+	f1.Merge(f2)
+
+	// Expected points: (0,0), (1,10), (2, (20+22)/2 = 21), (3,30)
+	if f1.GetNdots() != 4 {
+		t.Fatalf("After merge, expected 4 points, got %d", f1.GetNdots())
+	}
+
+	// Verify points are sorted and merged correctly
+	expectedPoints := []TFPoint{
+		{X: 0, Y: 0, Epoch: 0},
+		{X: 1, Y: 10, Epoch: 0},
+		{X: 2, Y: 21, Epoch: 1}, // Y averaged, Epoch from the latest (f2's point)
+		{X: 3, Y: 30, Epoch: 0},
+	}
+
+	for i, ep := range expectedPoints {
+		if i >= len(f1.P) {
+			t.Fatalf("Missing point at index %d", i)
+		}
+		if !almostEqual(f1.P[i].X, ep.X) || !almostEqual(f1.P[i].Y, ep.Y) || f1.P[i].Epoch != ep.Epoch {
+			t.Errorf("Point %d mismatch:\nGot: %+v\nWant: %+v", i, f1.P[i], ep)
+		}
+	}
+}
+
 func TestSinInterpolation(t *testing.T) {
 	f := New()
 	// Default is Order 3 (Cubic Spline)
@@ -417,9 +527,6 @@ func TestSinInterpolation(t *testing.T) {
 
 	for i := 0; i <= nPoints; i++ {
 		x := float64(i) * step
-		// Pre-round x to 4 decimal places because AddPoint rounds X coordinates.
-		// This ensures that the Y value corresponds exactly to the stored X.
-		x = math.Round(x*10000) / 10000
 		f.AddPoint(x, math.Sin(x), 0)
 	}
 
@@ -439,20 +546,28 @@ func TestSinInterpolation(t *testing.T) {
 	}
 }
 
-func TestAddPointRoundingCollision(t *testing.T) {
+func TestDrawPS(t *testing.T) {
 	f := New()
-	// Add a point at 1.0
-	f.AddPoint(1.0, 10.0, 0)
+	f.AddPoint(0, 0, 0)
+	f.AddPoint(1, 1, 0)
+	f.AddPoint(2, 0, 0)
 
-	// Add a point that is extremely close to 1.0, such that it rounds to the same 4-decimal value.
-	// 1.00004 rounds to 1.0000.
-	f.AddPoint(1.00004, 20.0, 0)
+	// Create a temporary file for the PS output
+	tempFile, err := os.CreateTemp("", "test_draw_ps_*.ps")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name()) // Clean up the file after the test
+	tempFile.Close()
 
-	// Check number of points. Should be 1.
-	if f.GetNdots() != 1 {
-		t.Errorf("Expected 1 point after adding close points, got %d", f.GetNdots())
+	err = f.DrawPS(tempFile.Name())
+	if err != nil {
+		t.Errorf("DrawPS failed: %v", err)
 	}
 
-	// Trigger update_spline to ensure no panic (division by zero if duplicates exist)
-	f.F(1.0)
+	// Optionally, read the file content to ensure it's not empty
+	content, err := os.ReadFile(tempFile.Name())
+	if err != nil || len(content) == 0 {
+		t.Errorf("Generated PS file is empty or could not be read: %v", err)
+	}
 }

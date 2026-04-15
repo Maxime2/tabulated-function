@@ -29,7 +29,6 @@ type TabulatedFunction struct {
 	changed                    bool
 	Order                      int
 	Trapolation                Trapolation
-	Precision                  int
 	P                          []TFPoint
 }
 
@@ -38,7 +37,6 @@ func New() *TabulatedFunction {
 	return &TabulatedFunction{
 		Order:       3,
 		Trapolation: TrapolationSpline,
-		Precision:   10000,
 		changed:     false,
 	}
 }
@@ -334,19 +332,11 @@ func (f *TabulatedFunction) SetTrapolation(new_value Trapolation) {
 	f.changed = true
 }
 
-func (f *TabulatedFunction) SetPrecision(new_value int) {
-	f.Precision = new_value
-	f.changed = true
-}
-
 func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	var i int
 	f.changed = true
 
-	scale := float64(f.Precision)
-	XnRounded := math.Round(Xn*scale) / scale
-
-	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: XnRounded}, func(a, b TFPoint) int {
+	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
 		if a.X < b.X {
 			return -1
 		}
@@ -362,7 +352,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 		return f.P[i].Y
 	}
 	f.P = slices.Insert(f.P, i, TFPoint{
-		X:     XnRounded,
+		X:     Xn,
 		Y:     Yn,
 		Epoch: epoch,
 		b:     0,
@@ -493,6 +483,7 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 	f.iymax = s.iymax
 	f.istep = s.istep
 	f.Order = s.Order
+	f.Trapolation = s.Trapolation
 
 	f.P = make([]TFPoint, len(s.P))
 	for i, p := range s.P {

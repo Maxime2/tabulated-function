@@ -2,7 +2,6 @@ package tabulatedfunction
 
 import (
 	"encoding/json"
-	"math"
 	"slices"
 )
 
@@ -11,7 +10,6 @@ type Dump struct {
 	Order       int         `json:"order"`
 	Trapolation Trapolation `json:"trapolation"`
 	Points      []TFPoint   `json:"points"`
-	Precision   int         `json:"precision"`
 }
 
 // FromDump restores a tabulated function from a dump.
@@ -19,17 +17,9 @@ type Dump struct {
 func (f *TabulatedFunction) FromDump(d *Dump) {
 	f.Order = d.Order
 	f.Trapolation = d.Trapolation
-	f.Precision = d.Precision
 
 	f.P = make([]TFPoint, len(d.Points))
 	copy(f.P, d.Points)
-	// Ensure points follow the same rounding logic as AddPoint to prevent
-	// numerical instability in spline calculation.
-	f.P = make([]TFPoint, 0, len(d.Points))
-	for _, p := range d.Points {
-		p.X = math.Round(p.X*float64(f.Precision)) / float64(f.Precision)
-		f.P = append(f.P, p)
-	}
 
 	// Ensure points are sorted, as they may come from an untrusted source.
 	slices.SortFunc(f.P, func(a, b TFPoint) int {
@@ -76,7 +66,6 @@ func (f *TabulatedFunction) Dump() *Dump {
 	return &Dump{
 		Order:       f.Order,
 		Trapolation: f.Trapolation,
-		Precision:   f.Precision,
 		Points:      points,
 	}
 }
