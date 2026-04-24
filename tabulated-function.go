@@ -791,7 +791,7 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 %% Distance that the witness line descends past the dimension line.
 /dimext 20 def
 %% Font for dimensions
-/dimfont /Alegraya-Regular def
+/dimfont /Helvetica def
 %% Font size
 /dimscale 12 def
 %% dimension text offset
@@ -821,11 +821,12 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 
 %% Usage: (text) _align_middle
 /_align_middle {
+	dimfont findfont dimscale scalefont setfont
+	dimcol
     dup %% (text) (text)
     stringwidth pop %% (text) w
     -2 div 0 rmoveto
-	dimfont findfont dimscale scalefont setfont
-	dimcol show
+	show
 } bind def
 
 %% Draw a horizontal dimension
@@ -842,11 +843,11 @@ func (f *TabulatedFunction) DrawPS(path string) error {
         /x1 exch def
         /q y1 offs add def
         offs 0 ge {
-            /v y1 dimext add def
-            /w y1 offs add dimext add def
+            /v y1 dimoffs add def
+            /w q dimext add def
         } {
-            /v y1 dimext sub def
-            /w y1 offs add dimext sub def
+            /v y1 dimoffs sub def
+            /w q dimext sub def
         } ifelse
         %% Left witness line
         x1 v moveto x1 w lineto stroke
@@ -876,11 +877,11 @@ func (f *TabulatedFunction) DrawPS(path string) error {
         /x1 exch def
         /q x1 offs add def
         offs 0 ge {
-            /v x1 dimext add def
-            /w x1 offs add dimext add def
+            /v x1 dimoffs add def
+            /w q dimext add def
         } {
-            /v x1 dimext sub def
-            /w x1 offs add dimext sub def
+            /v x1 dimoffs sub def
+            /w q dimext sub def
         } ifelse
         %% Bottom witness line
         v y1 moveto w y1 lineto stroke
@@ -922,7 +923,7 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 			dx1 := xCurr - xPrev
 			dx2 := xNext - xPrev
 			val := yPrev + dy*dx1/dx2
-			fmt.Fprintf(ps, " %v", val)
+			fmt.Fprintf(ps, "\t%% interp: %v", val)
 		}
 		fmt.Fprintf(ps, "\n")
 	}
