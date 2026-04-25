@@ -946,9 +946,9 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 w 10 div h 10 div w h gridwh
 
 /Translate { %% x y Translate
-	Ymin sub h mul Ysize div
+	Ymin sub Ysize div h mul
 	exch
-	Xmin sub w mul Xsize div
+	Xmin sub Xsize div w mul
 	exch 
 } bind def
 `)
