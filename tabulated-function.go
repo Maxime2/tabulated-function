@@ -929,10 +929,10 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 	}
 	fmt.Fprintf(ps, "] def\n")
 
-	fmt.Fprintf(ps, "/Xmin %v dup %v exch sub 0.01 mul abs sub def\n", f.ixmin, f.ixmax)
-	fmt.Fprintf(ps, "/Xmax %v dup %v sub 0.01 mul abs add def\n", f.ixmax, f.ixmin)
-	fmt.Fprintf(ps, "/Ymin %v dup %v exch sub 0.01 mul abs sub def\n", f.iymin, f.iymax)
-	fmt.Fprintf(ps, "/Ymax %v dup %v sub 0.01 mul abs add def\n", f.iymax, f.iymin)
+	fmt.Fprintf(ps, "/Xmin %v def\n", f.ixmin)
+	fmt.Fprintf(ps, "/Xmax %v def\n", f.ixmax)
+	fmt.Fprintf(ps, "/Ymin %v def\n", f.iymin)
+	fmt.Fprintf(ps, "/Ymax %v def\n", f.iymax)
 
 	fmt.Fprintf(ps, `
 /Xsize Xmax Xmin sub def
