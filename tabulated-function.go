@@ -904,7 +904,7 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 
 	fmt.Fprintf(ps, "/XValues [\n")
 	for i, p := range f.P {
-		fmt.Fprintf(ps, " %v\t%% %v\n", p.X, i)
+		fmt.Fprintf(ps, " %v\t%% %v\n", (p.X-f.ixmin)/(f.ixmax-f.ixmin), i)
 	}
 	fmt.Fprintf(ps, "] def\n")
 
@@ -929,8 +929,8 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 	}
 	fmt.Fprintf(ps, "] def\n")
 
-	fmt.Fprintf(ps, "/Xmin %v def\n", f.ixmin)
-	fmt.Fprintf(ps, "/Xmax %v def\n", f.ixmax)
+	fmt.Fprintf(ps, "/Xmin 0 def\n")
+	fmt.Fprintf(ps, "/Xmax 1 def\n")
 	fmt.Fprintf(ps, "/Ymin %v def\n", f.iymin)
 	fmt.Fprintf(ps, "/Ymax %v def\n", f.iymax)
 
