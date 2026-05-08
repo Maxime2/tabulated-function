@@ -78,7 +78,7 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 func (f *TabulatedFunction) Trapolate(xi float64, trapolation Trapolation) float64 {
 	l := len(f.P)
 	if l == 0 {
-		return 1.0
+		return math.NaN()
 	}
 	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
 		if a.X < b.X {
@@ -108,7 +108,11 @@ func (f *TabulatedFunction) Trapolate(xi float64, trapolation Trapolation) float
 		} else {
 			right = k
 		}
-		left = k - 1
+		if k == 0 {
+			left = 0
+		} else {
+			left = k - 1
+		}
 	}
 
 	return f._interpolate(xi, left, right, trapolation)
@@ -268,24 +272,26 @@ func (f *TabulatedFunction) update_spline() {
 		return
 	}
 	if f.Order == 2 {
-		for i = 0; i <= j-2; i++ {
-			x1 = f.P[i+1].X - f.P[i].X
-			x2 = f.P[i+2].X - f.P[i].X
-			y1 = f.P[i+1].Y - f.P[i].Y
-			y2 = f.P[i+2].Y - f.P[i].Y
+		if j > 0 {
+			for i = 0; i <= j-2; i++ {
+				x1 = f.P[i+1].X - f.P[i].X
+				x2 = f.P[i+2].X - f.P[i].X
+				y1 = f.P[i+1].Y - f.P[i].Y
+				y2 = f.P[i+2].Y - f.P[i].Y
 
-			// det = x1 * x2 * (x2 - x1)
-			det = x1 * x2 * (x2 - x1)
-			// det = 1 / det
-			det = 1.0 / det
+				// det = x1 * x2 * (x2 - x1)
+				det = x1 * x2 * (x2 - x1)
+				// det = 1 / det
+				det = 1.0 / det
 
-			// b = (y1*x2*x2 - y2*x1*x1) * det
-			f.P[i].b = (y1*x2*x2 - y2*x1*x1) * det
+				// b = (y1*x2*x2 - y2*x1*x1) * det
+				f.P[i].b = (y1*x2*x2 - y2*x1*x1) * det
 
-			// c = (y2*x1 - y1*x2) * det
-			f.P[i].c = (y2*x1 - y1*x2) * det
+				// c = (y2*x1 - y1*x2) * det
+				f.P[i].c = (y2*x1 - y1*x2) * det
+			}
+			f.P[j-1].b = (f.P[j].Y - f.P[j-1].Y) / h[j-1]
 		}
-		f.P[j-1].b = (f.P[j].Y - f.P[j-1].Y) / h[j-1]
 		return
 	}
 	alpha = make([]float64, j+1)
@@ -377,16 +383,14 @@ func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 
 func (f *TabulatedFunction) Normalise() {
 	var i int
-	ym := math.Abs(f.iymax)
-	yminAbs := math.Abs(f.iymin)
-	if yminAbs > ym {
-		ym = yminAbs
-	}
+	ym := math.Max(math.Abs(f.iymin), math.Abs(f.iymax))
 
-	for i = range f.P {
-		f.P[i].Y /= ym
+	if ym > 0 {
+		for i = range f.P {
+			f.P[i].Y /= ym
+		}
+		f.changed = true
 	}
-	f.changed = true
 }
 
 func (f *TabulatedFunction) Smooth() {
@@ -472,8 +476,7 @@ func (f *TabulatedFunction) MultiplyByScalar(by float64) {
 		f.P[i].c *= by
 		f.P[i].d *= by
 	}
-	f.iymin *= by
-	f.iymax *= by
+	f.changed = true
 }
 
 func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
@@ -590,6 +593,7 @@ func (f *TabulatedFunction) Derivative() {
 		f.P[i].c = f.P[i].d * 3.0
 		f.P[i].d = 0
 	}
+	f.changed = true
 }
 
 func (f *TabulatedFunction) Integral() {
@@ -619,6 +623,7 @@ func (f *TabulatedFunction) Integral() {
 			f.P[i].Y = f.P[i-1].Y + term
 		}
 		f.Order++
+		f.changed = true
 	} else {
 		prev_acc = f.P[0].d / 4.0
 		f.P[0].d = f.P[0].c / 3.0
