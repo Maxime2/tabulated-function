@@ -361,7 +361,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 		return f.P[i].Y
 	}
 	f.P = slices.Insert(f.P, i, TFPoint{
-		X:     Xn,
+		X:     X0,
 		Y:     Yn,
 		Epoch: epoch,
 		b:     0,
