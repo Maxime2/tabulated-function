@@ -15,6 +15,7 @@ const (
 	TrapolationShift    Trapolation = 2
 	TrapolationMinMax   Trapolation = 3
 	TrapolationOpposite Trapolation = 4
+	Precision                       = 1000000000
 )
 
 type TFPoint struct {
@@ -342,7 +343,9 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	var i int
 	f.changed = true
 
-	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
+	X0 := math.Round(Xn*Precision) / Precision
+
+	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: X0}, func(a, b TFPoint) int {
 		if a.X < b.X {
 			return -1
 		}
