@@ -226,6 +226,43 @@ func TestTrapolationOpposite(t *testing.T) {
 	})
 }
 
+func TestTrapolationNearest(t *testing.T) {
+	f := New()
+	f.SetTrapolation(TrapolationNearest)
+	f.AddPoint(0, 10, 0)
+	f.AddPoint(10, 20, 0)
+
+	testCases := []struct {
+		x        float64
+		expected float64
+	}{
+		{2, 10},
+		{8, 20},
+		{5, 20}, // Exactly in middle, implementation returns right
+		{-5, 10},
+		{15, 20},
+	}
+
+	for _, tc := range testCases {
+		if y := f.F(tc.x); !almostEqual(y, tc.expected) {
+			t.Errorf("Nearest F(%v) = %v; want %v", tc.x, y, tc.expected)
+		}
+	}
+}
+
+func TestTrapolationCosine(t *testing.T) {
+	f := New()
+	f.SetTrapolation(TrapolationCosine)
+	f.AddPoint(0, 0, 0)
+	f.AddPoint(10, 100, 0)
+
+	// At midpoint 5, mu=0.5. mu2 = (1 - cos(pi/2))/2 = 0.5. Result should be 50.
+	// Midpoint test verifies the cosine transition curve is centered correctly.
+	if y := f.F(5); !almostEqual(y, 50) {
+		t.Errorf("Cosine F(5) = %v; want 50", y)
+	}
+}
+
 func TestLoadConstant(t *testing.T) {
 	f := New()
 	f.LoadConstant(100, -5, 5)

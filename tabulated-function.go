@@ -15,6 +15,8 @@ const (
 	TrapolationShift    Trapolation = 2
 	TrapolationMinMax   Trapolation = 3
 	TrapolationOpposite Trapolation = 4
+	TrapolationNearest  Trapolation = 5
+	TrapolationCosine   Trapolation = 6
 	Precision                       = 1000000000
 )
 
@@ -209,6 +211,26 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 		}
 		return (f.iymax + avg) / 2.0
 
+	case TrapolationNearest:
+		if left == right || left < 0 {
+			return f.P[right].Y
+		}
+		if math.Abs(xi-f.P[left].X) < math.Abs(xi-f.P[right].X) {
+			return f.P[left].Y
+		}
+		return f.P[right].Y
+
+	case TrapolationCosine:
+		if left == right || left < 0 {
+			return f.P[right].Y
+		}
+		dx := f.P[right].X - f.P[left].X
+		if dx == 0 {
+			return f.P[left].Y
+		}
+		mu := (xi - f.P[left].X) / dx
+		mu2 := (1 - math.Cos(mu*math.Pi)) / 2.0
+		return f.P[left].Y*(1.0-mu2) + f.P[right].Y*mu2
 	}
 	// This is unreachable if all Trapolation values are handled.
 	// A panic is better than returning a magic number.
