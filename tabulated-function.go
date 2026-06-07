@@ -423,29 +423,7 @@ func (f *TabulatedFunction) Smooth() {
 		if i == 0 || i == len(f.P)-1 {
 			continue
 		}
-		// h2 := (f.P[i].X - f.P[i-1].X) + (f.P[i+1].X - f.P[i].X)
-		h2 := (f.P[i].X - f.P[i-1].X) + (f.P[i+1].X - f.P[i].X)
-
-		// d0 := (-3*f.P[i-1].Y + 4*f.P[i].Y - f.P[i+1].Y) / h2
-		d0 := (-3.0*f.P[i-1].Y + 4.0*f.P[i].Y - f.P[i+1].Y) / h2
-
-		// d1 := (f.P[i+1].Y - f.P[i-1].Y) / h2
-		d1 := (f.P[i+1].Y - f.P[i-1].Y) / h2
-
-		// d2 := (f.P[i-1].Y - 4*f.P[i].Y + 3*f.P[i+1].Y) / h2
-		d2 := (f.P[i-1].Y - 4.0*f.P[i].Y + 3.0*f.P[i+1].Y) / h2
-
-		// d := (d0 + d1 + d2) / 3
-		d := (d0 + d1 + d2) / 3.0
-
-		// f1_1 := (d*h2 + 3*f.P[i-1].Y + f.P[i+1].Y) / 4
-		f1_1 := (d*h2 + 3.0*f.P[i-1].Y + f.P[i+1].Y) / 4.0
-
-		// f1_2 := (d*h2 - f.P[i-1].Y - 3*f.P[i+1].Y) / -4
-		f1_2 := (d*h2 - f.P[i-1].Y - 3.0*f.P[i+1].Y) / -4.0
-
-		// f.P[i].Y = (f1_1 + f1_2) / 2
-		f.P[i].Y = (f1_1 + f1_2) / 2.0
+		f.P[i].Y = (f.P[i-1].Y + f.P[i].Y + f.P[i+1].Y) / 3.0
 	}
 	f.changed = true
 }
@@ -492,14 +470,8 @@ func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 }
 
 func (f *TabulatedFunction) MultiplyByScalar(by float64) {
-	if f.changed {
-		f.update_spline()
-	}
 	for i := range f.P {
 		f.P[i].Y *= by
-		f.P[i].b *= by
-		f.P[i].c *= by
-		f.P[i].d *= by
 	}
 	f.changed = true
 }
@@ -658,15 +630,17 @@ func (f *TabulatedFunction) Integral() {
 		for i = 1; i <= j; i++ {
 			r = f.P[i].X - f.P[i-1].X
 			acc = f.P[i].d / 4.0
+			// Calculate the integral value at the end of segment i-1 to use as Y[i]
+			term := r * prev_acc
+			term = (f.P[i-1].d + term) * r
+			term = (f.P[i-1].c + term) * r
+			term = (f.P[i-1].b + term) * r
+			integralVal := f.P[i-1].Y + term
+
 			f.P[i].d = f.P[i].c / 3.0
 			f.P[i].c = f.P[i].b / 2.0
 			f.P[i].b = f.P[i].Y
-			// f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i].c+r*(f.P[i-1].d+r*prev_acc)))
-			term := r * prev_acc
-			term = (f.P[i-1].d + term) * r
-			term = (f.P[i].c + term) * r
-			term = (f.P[i-1].b + term) * r
-			f.P[i].Y = f.P[i-1].Y + term
+			f.P[i].Y = integralVal
 			prev_acc = acc
 		}
 		f.changed = true

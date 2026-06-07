@@ -411,8 +411,8 @@ func TestSmooth(t *testing.T) {
 	if almostEqual(y_before, y_after) {
 		t.Errorf("Smooth() did not change the Y value of the middle point. Before: %v, After: %v", y_before, y_after)
 	}
-	// Based on manual calculation of the implemented formula:
-	expected_y := (2.0 + 2.0) / 2.0
+	// Based on manual calculation of the 3-point average: (0.0 + 10.0 + 4.0) / 3.0
+	expected_y := 14.0 / 3.0
 	if !almostEqual(y_after, expected_y) {
 		t.Errorf("Smooth() produced %v, want %v", y_after, expected_y)
 	}
