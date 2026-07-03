@@ -313,7 +313,21 @@ func (f *TabulatedFunction) update_spline() {
 				// c = (y2*x1 - y1*x2) * det
 				f.P[i].c = (y2*x1 - y1*x2) * det
 			}
-			f.P[j-1].b = (f.P[j].Y - f.P[j-1].Y) / h[j-1]
+			// For the last point, reuse the quadratic logic by looking backwards.
+			if j > 1 {
+				x1 = f.P[j-1].X - f.P[j-2].X
+				x2 = f.P[j].X - f.P[j-2].X
+				y1 = f.P[j-1].Y - f.P[j-2].Y
+				y2 = f.P[j].Y - f.P[j-2].Y
+
+				det = x1 * x2 * (x2 - x1)
+				if det != 0 {
+					det = 1.0 / det
+					// Calculate coefficients for the segment starting at P[j-1]
+					f.P[j-1].b = (y1*x2*x2 - y2*x1*x1) * det
+					f.P[j-1].c = (y2*x1 - y1*x2) * det
+				}
+			}
 		}
 		return
 	}
@@ -734,6 +748,16 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 	if f.changed {
 		f.update_spline()
 	}
+
+	// If there are no points, draw a blank page and exit to avoid errors.
+	if len(f.P) == 0 {
+		fmt.Fprintf(ps, `%%!PS
+showpage
+quit
+`)
+		return nil
+	}
+
 	fmt.Fprintf(ps, `%%!PS
 	%% This is the color that the grid is drawn in.
 /grid_major_color {1 .6 .6} def
