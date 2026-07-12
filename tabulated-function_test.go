@@ -81,10 +81,13 @@ func TestAddPointAndF(t *testing.T) {
 		})
 	}
 
-	// Test adding an existing point (should average)
+	// Test adding an existing point (should overwrite and return the old value)
 	// The original point is (2, 20). We add (2, 22).
-	f.AddPoint(2, 22, 1)
-	expectedY := (20.0 + 22.0) / 2.0
+	oldY := f.AddPoint(2, 22, 1)
+	if !almostEqual(oldY, 20.0) {
+		t.Errorf("AddPoint(2, 22) returned %v; want 20.0 (old value)", oldY)
+	}
+	expectedY := 22.0
 	if !almostEqual(f.F(2), expectedY) {
 		t.Errorf("F(2) after adding existing point = %v; want %v", f.F(2), expectedY)
 	}
@@ -476,10 +479,16 @@ func TestAssign(t *testing.T) {
 	source.AddPoint(2, 20, 2)
 	source.SetOrder(1)
 	source.SetTrapolation(TrapolationLinear)
-	_ = source.F(1.5) // Force update_spline to set ixmin/max/ymin/max/istep
+
+	// Force update_spline on source so that its coefficients (b, c, d) are computed
+	_ = source.GetXmin()
 
 	dest := New()
 	dest.Assign(source)
+
+	// Force update_spline on dest so that its coefficients (b, c, d)
+	// are recalculated and match the updated state of source.
+	_ = dest.GetXmin()
 
 	if dest.Order != source.Order {
 		t.Errorf("Order mismatch: dest=%d, source=%d", dest.Order, source.Order)
@@ -526,11 +535,11 @@ func TestMerge(t *testing.T) {
 	f2 := New()
 	f2.AddPoint(1, 10, 0)
 	f2.AddPoint(3, 30, 0)
-	f2.AddPoint(2, 22, 1) // Point with same X as in f1, should be averaged
+	f2.AddPoint(2, 22, 1) // Point with same X as in f1, will be overwritten
 
 	f1.Merge(f2)
 
-	// Expected points: (0,0), (1,10), (2, (20+22)/2 = 21), (3,30)
+	// Expected points: (0,0), (1,10), (2, 22), (3,30)
 	if f1.GetNdots() != 4 {
 		t.Fatalf("After merge, expected 4 points, got %d", f1.GetNdots())
 	}
@@ -539,7 +548,7 @@ func TestMerge(t *testing.T) {
 	expectedPoints := []TFPoint{
 		{X: 0, Y: 0, Epoch: 0},
 		{X: 1, Y: 10, Epoch: 0},
-		{X: 2, Y: 21, Epoch: 1}, // Y averaged, Epoch from the latest (f2's point)
+		{X: 2, Y: 22, Epoch: 1}, // Y overwritten, Epoch from the latest (f2's point)
 		{X: 3, Y: 30, Epoch: 0},
 	}
 
