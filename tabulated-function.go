@@ -662,6 +662,47 @@ func (f *TabulatedFunction) Integral() {
 	}
 }
 
+func (f *TabulatedFunction) Expand(n int) {
+	if f.changed {
+		f.update_spline()
+	}
+
+	for step := 0; step < n; step++ {
+		if len(f.P) < 2 {
+			break
+		}
+
+		var indices []int
+		for i, p := range f.P {
+			if math.Abs(p.Y-f.iymax) < math.Abs(p.Y-f.iymin) {
+				indices = append(indices, i)
+			}
+		}
+
+		if len(indices) < 2 {
+			break
+		}
+
+		maxDist := -1.0
+		bestIdx := -1
+		for j := 0; j < len(indices)-1; j++ {
+			dist := f.P[indices[j+1]].X - f.P[indices[j]].X
+			if dist > maxDist {
+				maxDist = dist
+				bestIdx = j
+			}
+		}
+		if bestIdx == -1 {
+			break
+		}
+		p1 := f.P[indices[bestIdx]]
+		p2 := f.P[indices[bestIdx+1]]
+		f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y)/2.0, p1.Epoch)
+	}
+
+	f.changed = true
+}
+
 func (f *TabulatedFunction) GetStep() float64 {
 	if f.changed {
 		f.update_spline()

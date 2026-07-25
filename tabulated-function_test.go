@@ -617,3 +617,25 @@ func TestDrawPS(t *testing.T) {
 		t.Errorf("Generated PS file is empty or could not be read: %v", err)
 	}
 }
+
+func TestExpand(t *testing.T) {
+	f := New()
+	// ymin = 0, ymax = 10
+	// Points closer to 10 than 0 are those with Y > 5.
+	f.AddPoint(0, 0, 0)   // Not closer
+	f.AddPoint(1, 8, 0)   // Closer (Y=8 > 5)
+	f.AddPoint(2, 2, 0)   // Not closer
+	f.AddPoint(4, 9, 0)   // Closer (Y=9 > 5)
+	f.AddPoint(10, 10, 0) // Closer (Y=10 > 5)
+
+	f.Expand(1)
+
+	if f.GetNdots() != 6 {
+		t.Fatalf("Expected 6 points, got %d", f.GetNdots())
+	}
+
+	y := f.F(7)
+	if !almostEqual(y, 9.5) {
+		t.Errorf("Expected F(7) to be 9.5, got %v", y)
+	}
+}
