@@ -672,9 +672,10 @@ func (f *TabulatedFunction) Expand(n int) {
 			break
 		}
 
+		midY := (f.iymin + f.iymax) / 2.0
 		var indices []int
 		for i, p := range f.P {
-			if math.Abs(p.Y-f.iymax) < math.Abs(p.Y-f.iymin) {
+			if p.Y > midY {
 				indices = append(indices, i)
 			}
 		}
