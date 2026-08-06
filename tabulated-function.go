@@ -668,13 +668,22 @@ func (f *TabulatedFunction) Expand(n int) {
 	}
 
 	for step := 0; step < n; step++ {
+
 		if len(f.P) < 2 {
 			break
 		}
 
+		v1 := TFPoint{X: f.ixmin - f.istep, Y: f.iymax, Epoch: f.P[0].Epoch}
+		v2 := TFPoint{X: f.ixmax + f.istep, Y: f.iymax, Epoch: f.P[len(f.P)-1].Epoch}
+
+		tempP := make([]TFPoint, 0, len(f.P)+2)
+		tempP = append(tempP, v1)
+		tempP = append(tempP, f.P...)
+		tempP = append(tempP, v2)
+
 		midY := (f.iymin + f.iymax) / 2.0
 		var indices []int
-		for i, p := range f.P {
+		for i, p := range tempP {
 			if p.Y > midY {
 				indices = append(indices, i)
 			}
@@ -687,7 +696,7 @@ func (f *TabulatedFunction) Expand(n int) {
 		maxDist := -1.0
 		bestIdx := -1
 		for j := 0; j < len(indices)-1; j++ {
-			dist := f.P[indices[j+1]].X - f.P[indices[j]].X
+			dist := tempP[indices[j+1]].X - tempP[indices[j]].X
 			if dist > maxDist {
 				maxDist = dist
 				bestIdx = j
@@ -696,8 +705,8 @@ func (f *TabulatedFunction) Expand(n int) {
 		if bestIdx == -1 {
 			break
 		}
-		p1 := f.P[indices[bestIdx]]
-		p2 := f.P[indices[bestIdx+1]]
+		p1 := tempP[indices[bestIdx]]
+		p2 := tempP[indices[bestIdx+1]]
 		f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y)/2.0, p1.Epoch)
 	}
 
