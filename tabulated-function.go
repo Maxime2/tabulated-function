@@ -667,47 +667,69 @@ func (f *TabulatedFunction) Expand(n int) {
 		f.update_spline()
 	}
 
+	v1 := TFPoint{X: f.ixmin - f.istep, Y: f.iymax, Epoch: f.P[0].Epoch}
+	v2 := TFPoint{X: f.ixmax + f.istep, Y: f.iymax, Epoch: f.P[len(f.P)-1].Epoch}
+
+	midY := (f.iymin + f.iymax) / 2.0
+
 	for step := 0; step < n; step++ {
 
 		if len(f.P) < 2 {
 			break
 		}
 
-		v1 := TFPoint{X: f.ixmin - f.istep, Y: f.iymax, Epoch: f.P[0].Epoch}
-		v2 := TFPoint{X: f.ixmax + f.istep, Y: f.iymax, Epoch: f.P[len(f.P)-1].Epoch}
-
 		tempP := make([]TFPoint, 0, len(f.P)+2)
 		tempP = append(tempP, v1)
 		tempP = append(tempP, f.P...)
 		tempP = append(tempP, v2)
 
-		midY := (f.iymin + f.iymax) / 2.0
 		var indices []int
+		var andices []int
 		for i, p := range tempP {
 			if p.Y > midY {
 				indices = append(indices, i)
+			} else {
+				andices = append(andices, i)
 			}
 		}
 
-		if len(indices) < 2 {
-			break
+		if len(indices) > 1 {
+
+			maxDist := -1.0
+			bestIdx := -1
+			for j := 0; j < len(indices)-1; j++ {
+				dist := tempP[indices[j+1]].X - tempP[indices[j]].X
+				if dist > maxDist {
+					maxDist = dist
+					bestIdx = j
+				}
+			}
+			if bestIdx == -1 {
+				break
+			}
+			p1 := tempP[indices[bestIdx]]
+			p2 := tempP[indices[bestIdx+1]]
+			f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y+f.iymax)/3.0, p1.Epoch)
 		}
 
-		maxDist := -1.0
-		bestIdx := -1
-		for j := 0; j < len(indices)-1; j++ {
-			dist := tempP[indices[j+1]].X - tempP[indices[j]].X
-			if dist > maxDist {
-				maxDist = dist
-				bestIdx = j
+		if len(andices) > 1 {
+
+			maxDist := -1.0
+			bestIdx := -1
+			for j := 0; j < len(andices)-1; j++ {
+				dist := tempP[andices[j+1]].X - tempP[andices[j]].X
+				if dist > maxDist {
+					maxDist = dist
+					bestIdx = j
+				}
 			}
+			if bestIdx == -1 {
+				break
+			}
+			p1 := tempP[andices[bestIdx]]
+			p2 := tempP[andices[bestIdx+1]]
+			f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y+f.iymin)/3.0, p1.Epoch)
 		}
-		if bestIdx == -1 {
-			break
-		}
-		p1 := tempP[indices[bestIdx]]
-		p2 := tempP[indices[bestIdx+1]]
-		f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y)/2.0, p1.Epoch)
 	}
 
 	f.changed = true
