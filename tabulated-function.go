@@ -24,7 +24,7 @@ type TFPoint struct {
 	b, c, d float64
 	X, Y    float64
 	Epoch   uint32
-	index   uint64
+	index   uint32
 }
 
 type TabulatedFunction struct {
@@ -34,7 +34,7 @@ type TabulatedFunction struct {
 	Order                      int
 	Trapolation                Trapolation
 	P                          []TFPoint
-	index                      uint64
+	index                      uint32
 }
 
 // Create
@@ -443,7 +443,7 @@ func (f *TabulatedFunction) Normalise() {
 	}
 }
 
-func (f *TabulatedFunction) NormaliseIndices() (uint64, uint64) {
+func (f *TabulatedFunction) NormaliseIndices() (uint32, uint32) {
 	if len(f.P) == 0 {
 		f.index = 1
 		return 0, 0
@@ -889,7 +889,7 @@ quit
 /set_gray_by_index {
     MaxIdx MinIdx sub dup 0 ne {
         exch MinIdx sub exch div
-        1.0 exch sub 0.7 mul
+        1.0 exch sub 0.85 mul
     } {
         pop pop 0.0
     } ifelse
