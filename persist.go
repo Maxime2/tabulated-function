@@ -50,6 +50,13 @@ func (f *TabulatedFunction) FromDump(d *Dump) {
 		f.P = f.P[:k+1]
 	}
 
+	// Regenerate indices for points as they cannot be deserialized from JSON (lowercase field)
+	f.index = 1
+	for i := range f.P {
+		f.P[i].index = f.index
+		f.index++
+	}
+
 	f.ixmin = 0
 	f.ixmax = 0
 	f.iymin = 0

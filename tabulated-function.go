@@ -24,6 +24,7 @@ type TFPoint struct {
 	b, c, d float64
 	X, Y    float64
 	Epoch   uint32
+	index   uint64
 }
 
 type TabulatedFunction struct {
@@ -33,6 +34,7 @@ type TabulatedFunction struct {
 	Order                      int
 	Trapolation                Trapolation
 	P                          []TFPoint
+	index                      uint64
 }
 
 // Create
@@ -41,6 +43,7 @@ func New() *TabulatedFunction {
 		Order:       3,
 		Trapolation: TrapolationSpline,
 		changed:     false,
+		index:       1,
 	}
 }
 
@@ -395,6 +398,8 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 		f.P[i].Epoch = epoch
 		old := f.P[i].Y
 		f.P[i].Y = Yn
+		f.P[i].index = f.index
+		f.index++
 		return old
 	}
 	f.P = slices.Insert(f.P, i, TFPoint{
@@ -404,7 +409,10 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 		b:     0,
 		c:     0,
 		d:     0,
+		index: f.index,
 	})
+	f.index++
+
 	return Yn
 }
 
@@ -416,7 +424,9 @@ func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 	f.P = append([]TFPoint{}, TFPoint{
 		X: f.ixmin, Y: f.iymin, Epoch: 0,
 		b: 0, c: 0, d: 0,
+		index: f.index,
 	})
+	f.index++
 	f.istep = f.ixmax - f.ixmin
 	f.changed = false
 }
@@ -431,6 +441,30 @@ func (f *TabulatedFunction) Normalise() {
 		}
 		f.changed = true
 	}
+}
+
+func (f *TabulatedFunction) NormaliseIndices() (uint64, uint64) {
+	if len(f.P) == 0 {
+		f.index = 1
+		return 0, 0
+	}
+
+	minIndex := f.P[0].index
+	maxIndex := f.P[0].index
+	for _, p := range f.P {
+		if p.index < minIndex {
+			minIndex = p.index
+		}
+		if p.index > maxIndex {
+			maxIndex = p.index
+		}
+	}
+
+	for i := range f.P {
+		f.P[i].index = f.P[i].index - minIndex + 1
+	}
+	f.index = maxIndex - minIndex + 2
+	return 1, maxIndex - minIndex + 1
 }
 
 func (f *TabulatedFunction) Smooth() {
@@ -466,7 +500,13 @@ func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 		newY := f.F(x) * by.F(x)
 		// The epoch of the new point is not clearly defined by the multiplication.
 		// We'll use 0 as a neutral value.
-		newPoints = append(newPoints, TFPoint{X: x, Y: newY, Epoch: 0})
+		newPoints = append(newPoints, TFPoint{
+			X:     x,
+			Y:     newY,
+			Epoch: 0,
+			index: f.index,
+		})
+		f.index++
 	}
 
 	// Sort the new points by X coordinate before replacing the old slice.
@@ -499,6 +539,7 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 	f.istep = s.istep
 	f.Order = s.Order
 	f.Trapolation = s.Trapolation
+	f.index = s.index
 
 	f.P = make([]TFPoint, len(s.P))
 	for i, p := range s.P {
@@ -509,6 +550,7 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 			c:     p.c,
 			d:     p.d,
 			Epoch: p.Epoch,
+			index: p.index,
 		}
 	}
 	f.changed = true
@@ -551,6 +593,7 @@ func (f *TabulatedFunction) Clear() {
 	f.iymax = 0
 	f.istep = 0
 	f.changed = false
+	f.index = 1
 }
 
 func (f *TabulatedFunction) MorePoints() {
@@ -583,7 +626,9 @@ func (f *TabulatedFunction) MorePoints() {
 			b:     0,
 			c:     0,
 			d:     0,
+			index: f.index,
 		})
+		f.index++
 		newP = append(newP, p2)
 	}
 
@@ -823,6 +868,8 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 		f.update_spline()
 	}
 
+	minIndex, maxIndex := f.NormaliseIndices()
+
 	// If there are no points, draw a blank page and exit to avoid errors.
 	if len(f.P) == 0 {
 		fmt.Fprintf(ps, `%%!PS
@@ -839,6 +886,15 @@ quit
 /line_color {.5 .5 .5} def
 /dot_color {.1 .1 .1} def
 /radius 1 def
+/set_gray_by_index {
+    MaxIdx MinIdx sub dup 0 ne {
+        exch MinIdx sub exch div
+        1.0 exch sub 0.7 mul
+    } {
+        pop pop 0.0
+    } ifelse
+    setgray
+} bind def
 %% The line width used for the grid.
 /grid_major_lw 1.5 def
 /grid_lw .5 def
@@ -1031,6 +1087,15 @@ quit
 	}
 	fmt.Fprintf(ps, "] def\n")
 
+	fmt.Fprintf(ps, "/ColorValues [\n")
+	for i, p := range f.P {
+		fmt.Fprintf(ps, " %v\t%% %v\n", p.index, i)
+	}
+	fmt.Fprintf(ps, "] def\n")
+
+	fmt.Fprintf(ps, "/MinIdx %v def\n", minIndex)
+	fmt.Fprintf(ps, "/MaxIdx %v def\n", maxIndex)
+
 	fmt.Fprintf(ps, "/Xmin 0 def\n")
 	fmt.Fprintf(ps, "/Xmax 1 def\n")
 	fmt.Fprintf(ps, "/Ymin %v def\n", f.iymin)
@@ -1081,12 +1146,13 @@ stroke
 %% dots
 
 newpath
-dot_color setrgbcolor
+ColorValues 0 get set_gray_by_index
 XValues 0 get YValues 0 get %% X[0] Y[0]
 Translate
 radius 0 360 arc           %% draw the first point
 stroke
 1 1 XValues length 1 sub {  %% i    push integer i = 1 .. length(XValues)-1 on each iteration
+ColorValues 1 index get set_gray_by_index
 XValues                 %% i XVal    push X array
 1 index                 %% i XVal i  copy i from stack
 get                     %% i x       get ith X value from array

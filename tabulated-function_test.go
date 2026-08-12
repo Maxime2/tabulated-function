@@ -635,7 +635,35 @@ func TestExpand(t *testing.T) {
 	}
 
 	y := f.F(7)
-	if !almostEqual(y, 9.5) {
-		t.Errorf("Expected F(7) to be 9.5, got %v", y)
+	if !almostEqual(y, 29.0/3.0) {
+		t.Errorf("Expected F(7) to be %v, got %v", 29.0/3.0, y)
+	}
+}
+
+func TestNormalizeIndices(t *testing.T) {
+	f := New()
+	f.AddPoint(1, 10, 0)
+	f.AddPoint(2, 20, 0)
+	f.AddPoint(3, 30, 0)
+
+	// Manually offset indices to test shifting logic
+	f.P[0].index = 10
+	f.P[1].index = 12
+	f.P[2].index = 15
+	f.index = 16
+
+	f.NormaliseIndices()
+
+	if f.P[0].index != 1 {
+		t.Errorf("Expected point 0 index to be 1, got %d", f.P[0].index)
+	}
+	if f.P[1].index != 3 {
+		t.Errorf("Expected point 1 index to be 3, got %d", f.P[1].index)
+	}
+	if f.P[2].index != 6 {
+		t.Errorf("Expected point 2 index to be 6, got %d", f.P[2].index)
+	}
+	if f.index != 7 {
+		t.Errorf("Expected f.index generator to be updated to 7, got %d", f.index)
 	}
 }
