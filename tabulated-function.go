@@ -1123,23 +1123,28 @@ w 10 div h 10 div w h gridwh
 	fmt.Fprintf(ps, `
 %% lines
 
-newpath
-line_color setrgbcolor
-XValues 0 get YValues 0 get %% X[0] Y[0]
-Translate
-moveto                      %% move to first point
 1 1 XValues length 1 sub {  %% i    push integer i = 1 .. length(XValues)-1 on each iteration
-XValues                 %% i XVal    push X array
-1 index                 %% i XVal i  copy i from stack
-get                     %% i x       get ith X value from array
-YValues                 %% i x YVal
-2 index                 %% i x YVal i  i is 1 position deeper now, so 2 index instead of 1
-get                     %% i x y
+newpath
+ColorValues 1 index get set_gray_by_index
+XValues                 %% i XVal
+1 index 1 sub           %% i XVal i-1
+get                     %% i x_{i-1}
+YValues                 %% i x_{i-1} YVal
+2 index 1 sub           %% i x_{i-1} YVal i-1
+get                     %% i x_{i-1} y_{i-1}
 Translate
-lineto                  %% i    line to next point
-pop                     %%      discard index variable
-} for
+moveto
+XValues                 %% i XVal
+1 index                 %% i XVal i
+get                     %% i x_i
+YValues                 %% i x_i YVal
+2 index                 %% i x_i YVal i
+get                     %% i x_i y_i
+Translate
+lineto
 stroke
+pop                     %% discard index variable
+} for
 `)
 
 	fmt.Fprintf(ps, `
