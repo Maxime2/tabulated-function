@@ -635,8 +635,8 @@ func TestExpand(t *testing.T) {
 	}
 
 	y := f.F(7)
-	if !almostEqual(y, 29.0/3.0) {
-		t.Errorf("Expected F(7) to be %v, got %v", 29.0/3.0, y)
+	if !almostEqual(y, 9.5) {
+		t.Errorf("Expected F(7) to be 9.5, got %v", y)
 	}
 }
 

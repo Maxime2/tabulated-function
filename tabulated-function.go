@@ -53,6 +53,7 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	if l == 0 {
 		return math.NaN()
 	}
+	xi = math.Round(xi*Precision) / Precision
 	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
 		if a.X < b.X {
 			return -1
@@ -86,6 +87,7 @@ func (f *TabulatedFunction) Trapolate(xi float64, trapolation Trapolation) float
 	if l == 0 {
 		return math.NaN()
 	}
+	xi = math.Round(xi*Precision) / Precision
 	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
 		if a.X < b.X {
 			return -1
@@ -754,7 +756,7 @@ func (f *TabulatedFunction) Expand(n int) {
 			}
 			p1 := tempP[indices[bestIdx]]
 			p2 := tempP[indices[bestIdx+1]]
-			f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y+f.iymax)/3.0, p1.Epoch)
+			f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y)/2.0, p1.Epoch)
 		}
 
 		if len(andices) > 1 {
@@ -773,7 +775,7 @@ func (f *TabulatedFunction) Expand(n int) {
 			}
 			p1 := tempP[andices[bestIdx]]
 			p2 := tempP[andices[bestIdx+1]]
-			f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y+f.iymin)/3.0, p1.Epoch)
+			f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y)/2.0, p1.Epoch)
 		}
 	}
 
