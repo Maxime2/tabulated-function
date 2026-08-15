@@ -756,7 +756,10 @@ func (f *TabulatedFunction) Expand(n int) {
 			}
 			p1 := tempP[indices[bestIdx]]
 			p2 := tempP[indices[bestIdx+1]]
-			f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y)/2.0, p1.Epoch)
+			midX := (p1.X + p2.X) / 2.0
+			if f.canInsertPoint(midX) {
+				f.AddPoint(midX, (p1.Y+p2.Y)/2.0, p1.Epoch)
+			}
 		}
 
 		if len(andices) > 1 {
@@ -775,7 +778,10 @@ func (f *TabulatedFunction) Expand(n int) {
 			}
 			p1 := tempP[andices[bestIdx]]
 			p2 := tempP[andices[bestIdx+1]]
-			f.AddPoint((p1.X+p2.X)/2.0, (p1.Y+p2.Y)/2.0, p1.Epoch)
+			midX := (p1.X + p2.X) / 2.0
+			if f.canInsertPoint(midX) {
+				f.AddPoint(midX, (p1.Y+p2.Y)/2.0, p1.Epoch)
+			}
 		}
 	}
 
@@ -1185,4 +1191,30 @@ quit
 `)
 
 	return nil
+}
+
+func (f *TabulatedFunction) canInsertPoint(x float64) bool {
+	x = math.Round(x*Precision) / Precision
+	if len(f.P) == 0 {
+		return true
+	}
+	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: x}, func(a, b TFPoint) int {
+		if a.X < b.X {
+			return -1
+		}
+		if a.X > b.X {
+			return 1
+		}
+		return 0
+	})
+	if found {
+		return false
+	}
+	if k > 0 && x-f.P[k-1].X < f.istep {
+		return false
+	}
+	if k < len(f.P) && f.P[k].X-x < f.istep {
+		return false
+	}
+	return true
 }
