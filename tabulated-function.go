@@ -17,7 +17,6 @@ const (
 	TrapolationOpposite Trapolation = 4
 	TrapolationNearest  Trapolation = 5
 	TrapolationCosine   Trapolation = 6
-	Precision                       = 1000000000
 )
 
 type TFPoint struct {
@@ -53,7 +52,6 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 	if l == 0 {
 		return math.NaN()
 	}
-	xi = math.Round(xi*Precision) / Precision
 	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
 		if a.X < b.X {
 			return -1
@@ -87,7 +85,6 @@ func (f *TabulatedFunction) Trapolate(xi float64, trapolation Trapolation) float
 	if l == 0 {
 		return math.NaN()
 	}
-	xi = math.Round(xi*Precision) / Precision
 	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
 		if a.X < b.X {
 			return -1
@@ -384,9 +381,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	var i int
 	f.changed = true
 
-	X0 := math.Round(Xn*Precision) / Precision
-
-	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: X0}, func(a, b TFPoint) int {
+	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
 		if a.X < b.X {
 			return -1
 		}
@@ -405,7 +400,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 		return old
 	}
 	f.P = slices.Insert(f.P, i, TFPoint{
-		X:     X0,
+		X:     Xn,
 		Y:     Yn,
 		Epoch: epoch,
 		b:     0,
@@ -1194,7 +1189,6 @@ quit
 }
 
 func (f *TabulatedFunction) canInsertPoint(x float64) bool {
-	x = math.Round(x*Precision) / Precision
 	if len(f.P) == 0 {
 		return true
 	}
