@@ -465,11 +465,20 @@ func (f *TabulatedFunction) NormaliseIndices() (uint32, uint32) {
 }
 
 func (f *TabulatedFunction) Smooth() {
-	for i := range f.P {
-		if i == 0 || i == len(f.P)-1 {
-			continue
-		}
-		f.P[i].Y = (f.P[i-1].Y + f.P[i].Y + f.P[i+1].Y) / 3.0
+	if len(f.P) < 3 {
+		return
+	}
+
+	// Store original Y values to ensure all calculations use the state before smoothing.
+	// This prevents a calculation for P[i] from being affected by the new value of P[i-1].
+	originalYs := make([]float64, len(f.P))
+	for i, p := range f.P {
+		originalYs[i] = p.Y
+	}
+
+	// Calculate the new Y for each inner point based on the original values of its neighbors.
+	for i := 1; i < len(f.P)-1; i++ {
+		f.P[i].Y = (originalYs[i-1] + originalYs[i] + originalYs[i+1]) / 3.0
 	}
 	f.changed = true
 }
@@ -554,9 +563,38 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 }
 
 func (f *TabulatedFunction) Merge(m *TabulatedFunction) {
-	for i := range m.P {
-		f.AddPoint(m.P[i].X, m.P[i].Y, m.P[i].Epoch)
+	if len(m.P) == 0 {
+		return
 	}
+
+	// Use a map to efficiently merge and handle duplicates.
+	// The last point added for a given X coordinate will overwrite previous ones.
+	pointMap := make(map[float64]TFPoint, len(f.P)+len(m.P))
+	for _, p := range f.P {
+		pointMap[p.X] = p
+	}
+	for _, p := range m.P {
+		pointMap[p.X] = p // Overwrites if X exists, matching AddPoint behavior.
+	}
+
+	// Convert map back to a slice.
+	newPoints := make([]TFPoint, 0, len(pointMap))
+	for _, p := range pointMap {
+		newPoints = append(newPoints, p)
+	}
+
+	// Sort the new slice of points by X coordinate.
+	slices.SortFunc(newPoints, func(a, b TFPoint) int {
+		if a.X < b.X {
+			return -1
+		}
+		if a.X > b.X {
+			return 1
+		}
+		return 0
+	})
+
+	f.P = newPoints
 	f.changed = true
 }
 
