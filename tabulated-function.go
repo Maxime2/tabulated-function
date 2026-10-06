@@ -19,21 +19,18 @@ const (
 	TrapolationCosine   Trapolation = 6
 )
 
-type TFPoint struct {
-	b, c, d float64
-	X, Y    float64
-	Epoch   uint32
-	index   uint32
-}
-
 type TabulatedFunction struct {
 	ixmin, ixmax, iymin, iymax float64
 	istep                      float64
 	changed                    bool
 	Order                      int
 	Trapolation                Trapolation
-	P                          []TFPoint
-	index                      uint32
+	X                          []float64
+	Y                          []float64
+	b, c, d                    []float64
+	epoch                      []uint32
+	indices                    []uint32
+	nextIndex                  uint32
 }
 
 // Create
@@ -42,27 +39,19 @@ func New() *TabulatedFunction {
 		Order:       3,
 		Trapolation: TrapolationSpline,
 		changed:     false,
-		index:       1,
+		nextIndex:   1,
 	}
 }
 
 // splinevalue
 func (f *TabulatedFunction) F(xi float64) float64 {
-	l := len(f.P)
+	l := len(f.X)
 	if l == 0 {
 		return math.NaN()
 	}
-	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
-		if a.X < b.X {
-			return -1
-		}
-		if a.X > b.X {
-			return 1
-		}
-		return 0
-	})
+	k, found := slices.BinarySearch(f.X, xi)
 	if found {
-		return f.P[k].Y
+		return f.Y[k]
 	}
 
 	var left, right int
@@ -81,19 +70,11 @@ func (f *TabulatedFunction) F(xi float64) float64 {
 }
 
 func (f *TabulatedFunction) Trapolate(xi float64, trapolation Trapolation) float64 {
-	l := len(f.P)
+	l := len(f.X)
 	if l == 0 {
 		return math.NaN()
 	}
-	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: xi}, func(a, b TFPoint) int {
-		if a.X < b.X {
-			return -1
-		}
-		if a.X > b.X {
-			return 1
-		}
-		return 0
-	})
+	k, found := slices.BinarySearch(f.X, xi)
 
 	var left, right int
 	if found {
@@ -129,36 +110,31 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 	switch trapolation {
 	case TrapolationLinear:
 		// If left==right, it's extrapolation. Return the boundary value.
-		if left == right || left < 0 {
-			return f.P[right].Y
+		if left == right || left < 0 || left >= len(f.X) {
+			return f.Y[right]
 		}
 		// Avoid division by zero if points are not distinct on X.
-		dx := f.P[right].X - f.P[left].X
+		dx := f.X[right] - f.X[left]
 		if dx == 0 {
-			return f.P[left].Y
+			return f.Y[left]
 		}
-		// f.P[left].Y + (f.P[right].Y-f.P[left].Y)*(xi-f.P[left].X)/dx
-		dy := f.P[right].Y - f.P[left].Y
-		return f.P[left].Y + dy*(xi-f.P[left].X)/dx
+		dy := f.Y[right] - f.Y[left]
+		return f.Y[left] + dy*(xi-f.X[left])/dx
 
 		// Similar to Linear then switch to opposite value
 	case TrapolationOpposite:
 		// If left==right, it's extrapolation. Return the boundary value.
-		if left == right || left < 0 {
-			// f.GetYmin() + f.GetYmax() - f.P[right].Y
-			return f.GetYmin() + f.GetYmax() - f.P[right].Y
+		if left == right || left < 0 || left >= len(f.X) {
+			return f.GetYmin() + f.GetYmax() - f.Y[right]
 		}
 
 		// Determine if xi is closer to the left or right point.
-		// midpoint := (f.P[left].X + f.P[right].X) / 2
-		midpoint := (f.P[left].X + f.P[right].X) / 2.0
+		midpoint := (f.X[left] + f.X[right]) / 2.0
 
 		if xi <= midpoint {
-			// If closer to the left point, return the right point's Y value.
-			return f.P[right].Y
+			return f.Y[right]
 		}
-		// Otherwise (closer to the right point), return the left point's Y value.
-		return f.P[left].Y
+		return f.Y[left]
 
 	case TrapolationSpline:
 		// For order 1 (linear), extrapolation should clamp to the boundary value.
@@ -166,31 +142,30 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 		// and fixes an inconsistency where left-side extrapolated linearly while
 		// the right-side clamped.
 		if f.Order == 1 && (left == right || left < 0) {
-			return f.P[right].Y
+			return f.Y[right]
 		}
 
 		if f.changed {
 			f.update_spline()
 		}
 
-		// For interpolation, the segment is defined by P[left].
-		// For extrapolation, left==right, and we use the coefficients of that boundary point.
-		// r := xi - f.P[left].X
-		// return f.P[left].Y + r*(f.P[left].b+r*(f.P[left].c+r*f.P[left].d))
-		r := xi - f.P[left].X
-		return f.P[left].Y + r*(f.P[left].b+r*(f.P[left].c+r*f.P[left].d))
+		r := xi - f.X[left]
+		return f.Y[left] + r*(f.b[left]+r*(f.c[left]+r*f.d[left]))
 
 	case TrapolationShift:
-		if left < 0 {
-			return f.P[right].Y
+		if left < 0 || left >= len(f.X) {
+			return f.Y[right]
 		}
-		return (f.P[left].Y + f.P[right].Y) / 2.0
+		return (f.Y[left] + f.Y[right]) / 2.0
 
 	case TrapolationMinMax:
 		var v [2]float64
 
 		if left < 0 {
 			left = 0
+		}
+		if right >= len(f.X) {
+			right = len(f.X) - 1
 		}
 
 		if f.changed {
@@ -200,13 +175,13 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 		v[0] = 0
 		v[1] = 0
 
-		v[0] += math.Abs(f.iymin - f.P[left].Y)
-		v[0] += math.Abs(f.iymin - f.P[right].Y)
+		v[0] += math.Abs(f.iymin - f.Y[left])
+		v[0] += math.Abs(f.iymin - f.Y[right])
 
-		v[1] += math.Abs(f.iymax - f.P[left].Y)
-		v[1] += math.Abs(f.iymax - f.P[right].Y)
+		v[1] += math.Abs(f.iymax - f.Y[left])
+		v[1] += math.Abs(f.iymax - f.Y[right])
 
-		avg := (f.P[left].Y + f.P[right].Y) / 2.0
+		avg := (f.Y[left] + f.Y[right]) / 2.0
 
 		if v[0] > v[1] {
 			return (f.iymin + avg) / 2.0
@@ -214,25 +189,25 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 		return (f.iymax + avg) / 2.0
 
 	case TrapolationNearest:
-		if left == right || left < 0 {
-			return f.P[right].Y
+		if left == right || left < 0 || left >= len(f.X) {
+			return f.Y[right]
 		}
-		if math.Abs(xi-f.P[left].X) < math.Abs(xi-f.P[right].X) {
-			return f.P[left].Y
+		if math.Abs(xi-f.X[left]) < math.Abs(xi-f.X[right]) {
+			return f.Y[left]
 		}
-		return f.P[right].Y
+		return f.Y[right]
 
 	case TrapolationCosine:
-		if left == right || left < 0 {
-			return f.P[right].Y
+		if left == right || left < 0 || left >= len(f.X) {
+			return f.Y[right]
 		}
-		dx := f.P[right].X - f.P[left].X
+		dx := f.X[right] - f.X[left]
 		if dx == 0 {
-			return f.P[left].Y
+			return f.Y[left]
 		}
-		mu := (xi - f.P[left].X) / dx
+		mu := (xi - f.X[left]) / dx
 		mu2 := (1 - math.Cos(mu*math.Pi)) / 2.0
-		return f.P[left].Y*(1.0-mu2) + f.P[right].Y*mu2
+		return f.Y[left]*(1.0-mu2) + f.Y[right]*mu2
 	}
 	// This is unreachable if all Trapolation values are handled.
 	// A panic is better than returning a magic number.
@@ -241,36 +216,30 @@ func (f *TabulatedFunction) _interpolate(xi float64, left, right int, trapolatio
 
 func (f *TabulatedFunction) update_spline() {
 	var i, j int
-	var h, alpha, l, mu, z []float64
 	var det, x1, x2, y1, y2 float64
 
 	f.changed = false
-	i = len(f.P)
+	i = len(f.X)
 	if i == 0 {
 		return
 	}
 	j = i - 1
-	f.ixmin = f.P[0].X
-	f.ixmax = f.ixmin
-	f.iymin = f.P[0].Y
+	f.ixmin = f.X[0]
+	f.ixmax = f.X[j]
+	f.iymin = f.Y[0]
 	f.iymax = f.iymin
 	for i = 1; i <= j; i++ {
-		if f.P[i].X < f.ixmin {
-			f.ixmin = f.P[i].X
-		} else if f.P[i].X > f.ixmax {
-			f.ixmax = f.P[i].X
+		if f.Y[i] < f.iymin {
+			f.iymin = f.Y[i]
 		}
-		if f.P[i].Y < f.iymin {
-			f.iymin = f.P[i].Y
-		}
-		if f.P[i].Y > f.iymax {
-			f.iymax = f.P[i].Y
+		if f.Y[i] > f.iymax {
+			f.iymax = f.Y[i]
 		}
 	}
 	if j > 0 {
-		f.istep = f.P[1].X - f.P[0].X
+		f.istep = f.X[1] - f.X[0]
 		for i = 2; i <= j; i++ {
-			diff := f.P[i].X - f.P[i-1].X
+			diff := f.X[i] - f.X[i-1]
 			if diff < f.istep {
 				f.istep = diff
 			}
@@ -278,31 +247,25 @@ func (f *TabulatedFunction) update_spline() {
 	} else {
 		f.istep = 0
 	}
-	for i = 0; i <= j; i++ {
-		f.P[i].b = 0
-		f.P[i].c = 0
-		f.P[i].d = 0
-	}
+	clear(f.b)
+	clear(f.c)
+	clear(f.d)
 	if f.Order == 0 {
 		return
 	}
-	h = make([]float64, j+1)
-	for i = 0; i <= j-1; i++ {
-		h[i] = f.P[i+1].X - f.P[i].X
-	}
 	if f.Order == 1 {
 		for i = 0; i <= j-1; i++ {
-			f.P[i].b = (f.P[i+1].Y - f.P[i].Y) / h[i]
+			f.b[i] = (f.Y[i+1] - f.Y[i]) / (f.X[i+1] - f.X[i])
 		}
 		return
 	}
 	if f.Order == 2 {
 		if j > 0 {
 			for i = 0; i <= j-2; i++ {
-				x1 = f.P[i+1].X - f.P[i].X
-				x2 = f.P[i+2].X - f.P[i].X
-				y1 = f.P[i+1].Y - f.P[i].Y
-				y2 = f.P[i+2].Y - f.P[i].Y
+				x1 = f.X[i+1] - f.X[i]
+				x2 = f.X[i+2] - f.X[i]
+				y1 = f.Y[i+1] - f.Y[i]
+				y2 = f.Y[i+2] - f.Y[i]
 
 				// det = x1 * x2 * (x2 - x1)
 				det = x1 * x2 * (x2 - x1)
@@ -310,60 +273,46 @@ func (f *TabulatedFunction) update_spline() {
 				det = 1.0 / det
 
 				// b = (y1*x2*x2 - y2*x1*x1) * det
-				f.P[i].b = (y1*x2*x2 - y2*x1*x1) * det
+				f.b[i] = (y1*x2*x2 - y2*x1*x1) * det
 
 				// c = (y2*x1 - y1*x2) * det
-				f.P[i].c = (y2*x1 - y1*x2) * det
+				f.c[i] = (y2*x1 - y1*x2) * det
 			}
 			// For the last point, reuse the quadratic logic by looking backwards.
 			if j > 1 {
-				x1 = f.P[j-1].X - f.P[j-2].X
-				x2 = f.P[j].X - f.P[j-2].X
-				y1 = f.P[j-1].Y - f.P[j-2].Y
-				y2 = f.P[j].Y - f.P[j-2].Y
+				x1 = f.X[j-1] - f.X[j-2]
+				x2 = f.X[j] - f.X[j-2]
+				y1 = f.Y[j-1] - f.Y[j-2]
+				y2 = f.Y[j] - f.Y[j-2]
 
 				det = x1 * x2 * (x2 - x1)
 				if det != 0 {
 					det = 1.0 / det
-					// Calculate coefficients for the segment starting at P[j-1]
-					f.P[j-1].b = (y1*x2*x2 - y2*x1*x1) * det
-					f.P[j-1].c = (y2*x1 - y1*x2) * det
+					// Calculate coefficients for the segment starting at j-1
+					f.b[j-1] = (y1*x2*x2 - y2*x1*x1) * det
+					f.c[j-1] = (y2*x1 - y1*x2) * det
 				}
 			}
 		}
 		return
 	}
-	alpha = make([]float64, j+1)
-	l = make([]float64, j+1)
-	mu = make([]float64, j+1)
-	z = make([]float64, j+1)
+	f.d[0] = 0 // mu[0]
+	f.c[0] = 0 // z[0]
 	for i = 1; i <= j-1; i++ {
-		// alpha[i] = 3/h[i]*(f.P[i+1].Y-f.P[i].Y) - 3/h[i-1]*(f.P[i].Y-f.P[i-1].Y)
-		alpha[i] = 3.0/h[i]*(f.P[i+1].Y-f.P[i].Y) - 3.0/h[i-1]*(f.P[i].Y-f.P[i-1].Y)
+		hPrev := f.X[i] - f.X[i-1]
+		hCurr := f.X[i+1] - f.X[i]
+		alpha := 3.0/hCurr*(f.Y[i+1]-f.Y[i]) - 3.0/hPrev*(f.Y[i]-f.Y[i-1])
+		l := 2.0*(f.X[i+1]-f.X[i-1]) - hPrev*f.d[i-1]
+		f.d[i] = hCurr / l                    // mu[i]
+		f.c[i] = (alpha - hPrev*f.c[i-1]) / l // z[i]
 	}
-	l[0] = 1.0
-	mu[0] = 0
-	z[0] = 0
-	for i = 1; i <= j-1; i++ {
-		// l[i] = 2*(f.P[i+1].X-f.P[i-1].X) - h[i-1]*mu[i-1]
-		l[i] = 2.0*(f.P[i+1].X-f.P[i-1].X) - h[i-1]*mu[i-1]
-		// mu[i] = h[i] / l[i]
-		mu[i] = h[i] / l[i]
-		// z[i] = (alpha[i] - h[i-1]*z[i-1]) / l[i]
-		z[i] = (alpha[i] - h[i-1]*z[i-1]) / l[i]
-	}
-	l[j] = 1.0
-	z[j] = 0
-	f.P[j].c = 0
+	f.c[j] = 0
 	for i = j - 1; i >= 0; i-- {
-		// f.P[i].c = z[i] - mu[i]*f.P[i+1].c
-		f.P[i].c = z[i] - mu[i]*f.P[i+1].c
-
-		// f.P[i].b = (f.P[i+1].Y-f.P[i].Y)/h[i] - h[i]*(f.P[i+1].c+2*f.P[i].c)/3
-		f.P[i].b = (f.P[i+1].Y-f.P[i].Y)/h[i] - h[i]*(f.P[i+1].c+2.0*f.P[i].c)/3.0
-
-		// f.P[i].d = (f.P[i+1].c - f.P[i].c) / 3 / h[i]
-		f.P[i].d = (f.P[i+1].c - f.P[i].c) / 3.0 / h[i]
+		hCurr := f.X[i+1] - f.X[i]
+		ci := f.c[i] - f.d[i]*f.c[i+1]
+		f.c[i] = ci
+		f.b[i] = (f.Y[i+1]-f.Y[i])/hCurr - hCurr*(f.c[i+1]+2.0*ci)/3.0
+		f.d[i] = (f.c[i+1] - ci) / 3.0 / hCurr
 	}
 }
 
@@ -378,37 +327,50 @@ func (f *TabulatedFunction) SetTrapolation(new_value Trapolation) {
 }
 
 func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
-	var i int
 	f.changed = true
 
-	i, found := slices.BinarySearchFunc(f.P, TFPoint{X: Xn}, func(a, b TFPoint) int {
-		if a.X < b.X {
-			return -1
-		}
-		if a.X > b.X {
-			return 1
-		}
-		return 0
-	})
-	if found {
-		//f.P[i].X = Xn
-		f.P[i].Epoch = epoch
-		old := f.P[i].Y
-		f.P[i].Y = Yn
-		f.P[i].index = f.index
-		f.index++
+	n := len(f.X)
+	// Fast-path: strictly increasing insertions
+	if n == 0 || Xn > f.X[n-1] {
+		f.X = append(f.X, Xn)
+		f.Y = append(f.Y, Yn)
+		f.b = append(f.b, 0)
+		f.c = append(f.c, 0)
+		f.d = append(f.d, 0)
+		f.epoch = append(f.epoch, epoch)
+		f.indices = append(f.indices, f.nextIndex)
+		f.nextIndex++
+		return Yn
+	}
+
+	// Fast-path: updating the latest point
+	if Xn == f.X[n-1] {
+		f.epoch[n-1] = epoch
+		old := f.Y[n-1]
+		f.Y[n-1] = Yn
+		f.indices[n-1] = f.nextIndex
+		f.nextIndex++
 		return old
 	}
-	f.P = slices.Insert(f.P, i, TFPoint{
-		X:     Xn,
-		Y:     Yn,
-		Epoch: epoch,
-		b:     0,
-		c:     0,
-		d:     0,
-		index: f.index,
-	})
-	f.index++
+
+	i, found := slices.BinarySearch(f.X, Xn)
+	if found {
+		f.epoch[i] = epoch
+		old := f.Y[i]
+		f.Y[i] = Yn
+		f.indices[i] = f.nextIndex
+		f.nextIndex++
+		return old
+	}
+
+	f.X = slices.Insert(f.X, i, Xn)
+	f.Y = slices.Insert(f.Y, i, Yn)
+	f.b = slices.Insert(f.b, i, 0.0)
+	f.c = slices.Insert(f.c, i, 0.0)
+	f.d = slices.Insert(f.d, i, 0.0)
+	f.epoch = slices.Insert(f.epoch, i, epoch)
+	f.indices = slices.Insert(f.indices, i, f.nextIndex)
+	f.nextIndex++
 
 	return Yn
 }
@@ -418,12 +380,14 @@ func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 	f.ixmax = new_xmax
 	f.iymin = new_Y
 	f.iymax = f.iymin
-	f.P = append([]TFPoint{}, TFPoint{
-		X: f.ixmin, Y: f.iymin, Epoch: 0,
-		b: 0, c: 0, d: 0,
-		index: f.index,
-	})
-	f.index++
+	f.X = []float64{f.ixmin}
+	f.Y = []float64{f.iymin}
+	f.b = []float64{0}
+	f.c = []float64{0}
+	f.d = []float64{0}
+	f.epoch = []uint32{0}
+	f.indices = []uint32{f.nextIndex}
+	f.nextIndex++
 	f.istep = f.ixmax - f.ixmin
 	f.changed = false
 }
@@ -433,52 +397,47 @@ func (f *TabulatedFunction) Normalise() {
 	ym := math.Max(math.Abs(f.iymin), math.Abs(f.iymax))
 
 	if ym > 0 {
-		for i = range f.P {
-			f.P[i].Y /= ym
+		for i = range f.Y {
+			f.Y[i] /= ym
 		}
 		f.changed = true
 	}
 }
 
 func (f *TabulatedFunction) NormaliseIndices() (uint32, uint32) {
-	if len(f.P) == 0 {
-		f.index = 1
+	if len(f.indices) == 0 {
+		f.nextIndex = 1
 		return 0, 0
 	}
 
-	minIndex := f.P[0].index
-	maxIndex := f.P[0].index
-	for _, p := range f.P {
-		if p.index < minIndex {
-			minIndex = p.index
+	minIndex := f.indices[0]
+	maxIndex := f.indices[0]
+	for _, idx := range f.indices {
+		if idx < minIndex {
+			minIndex = idx
 		}
-		if p.index > maxIndex {
-			maxIndex = p.index
+		if idx > maxIndex {
+			maxIndex = idx
 		}
 	}
 
-	for i := range f.P {
-		f.P[i].index = f.P[i].index - minIndex + 1
+	for i := range f.indices {
+		f.indices[i] = f.indices[i] - minIndex + 1
 	}
-	f.index = maxIndex - minIndex + 2
+	f.nextIndex = maxIndex - minIndex + 2
 	return 1, maxIndex - minIndex + 1
 }
 
 func (f *TabulatedFunction) Smooth() {
-	if len(f.P) < 3 {
+	n := len(f.Y)
+	if n < 3 {
 		return
 	}
 
-	// Store original Y values to ensure all calculations use the state before smoothing.
-	// This prevents a calculation for P[i] from being affected by the new value of P[i-1].
-	originalYs := make([]float64, len(f.P))
-	for i, p := range f.P {
-		originalYs[i] = p.Y
-	}
+	originalYs := slices.Clone(f.Y)
 
-	// Calculate the new Y for each inner point based on the original values of its neighbors.
-	for i := 1; i < len(f.P)-1; i++ {
-		f.P[i].Y = (originalYs[i-1] + originalYs[i] + originalYs[i+1]) / 3.0
+	for i := 1; i < n-1; i++ {
+		f.Y[i] = (originalYs[i-1] + originalYs[i] + originalYs[i+1]) / 3.0
 	}
 	f.changed = true
 }
@@ -491,48 +450,46 @@ func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 		by.update_spline()
 	}
 
-	// Collect all unique X coordinates from both functions to define the new set of points.
 	xCoords := make(map[float64]struct{})
-	for _, p := range f.P {
-		xCoords[p.X] = struct{}{}
+	for _, x := range f.X {
+		xCoords[x] = struct{}{}
 	}
-	for _, p := range by.P {
-		xCoords[p.X] = struct{}{}
+	for _, x := range by.X {
+		xCoords[x] = struct{}{}
 	}
 
-	newPoints := make([]TFPoint, 0, len(xCoords))
+	sortedX := make([]float64, 0, len(xCoords))
 	for x := range xCoords {
-		// Calculate the new Y value using the original, unmodified functions.
-		newY := f.F(x) * by.F(x)
-		// The epoch of the new point is not clearly defined by the multiplication.
-		// We'll use 0 as a neutral value.
-		newPoints = append(newPoints, TFPoint{
-			X:     x,
-			Y:     newY,
-			Epoch: 0,
-			index: f.index,
-		})
-		f.index++
+		sortedX = append(sortedX, x)
+	}
+	slices.Sort(sortedX)
+
+	k := len(sortedX)
+	newY := make([]float64, k)
+	newEpoch := make([]uint32, k)
+	newIndices := make([]uint32, k)
+
+	for i, x := range sortedX {
+		newY[i] = f.F(x) * by.F(x)
+		newEpoch[i] = 0
+		newIndices[i] = f.nextIndex
+		f.nextIndex++
 	}
 
-	// Sort the new points by X coordinate before replacing the old slice.
-	slices.SortFunc(newPoints, func(a, b TFPoint) int {
-		if a.X < b.X {
-			return -1
-		}
-		if a.X > b.X {
-			return 1
-		}
-		return 0
-	})
+	f.X = sortedX
+	f.Y = newY
+	f.b = make([]float64, k)
+	f.c = make([]float64, k)
+	f.d = make([]float64, k)
+	f.epoch = newEpoch
+	f.indices = newIndices
 
-	f.P = newPoints
 	f.changed = true
 }
 
 func (f *TabulatedFunction) MultiplyByScalar(by float64) {
-	for i := range f.P {
-		f.P[i].Y *= by
+	for i := range f.Y {
+		f.Y[i] *= by
 	}
 	f.changed = true
 }
@@ -545,56 +502,76 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 	f.istep = s.istep
 	f.Order = s.Order
 	f.Trapolation = s.Trapolation
-	f.index = s.index
+	f.nextIndex = s.nextIndex
 
-	f.P = make([]TFPoint, len(s.P))
-	for i, p := range s.P {
-		f.P[i] = TFPoint{
-			X:     p.X,
-			Y:     p.Y,
-			b:     p.b,
-			c:     p.c,
-			d:     p.d,
-			Epoch: p.Epoch,
-			index: p.index,
-		}
-	}
+	f.X = slices.Clone(s.X)
+	f.Y = slices.Clone(s.Y)
+	f.b = slices.Clone(s.b)
+	f.c = slices.Clone(s.c)
+	f.d = slices.Clone(s.d)
+	f.epoch = slices.Clone(s.epoch)
+	f.indices = slices.Clone(s.indices)
 	f.changed = true
 }
 
 func (f *TabulatedFunction) Merge(m *TabulatedFunction) {
-	if len(m.P) == 0 {
+	if len(m.X) == 0 {
+		return
+	}
+	if len(f.X) == 0 {
+		f.Assign(m)
 		return
 	}
 
-	// Use a map to efficiently merge and handle duplicates.
-	// The last point added for a given X coordinate will overwrite previous ones.
-	pointMap := make(map[float64]TFPoint, len(f.P)+len(m.P))
-	for _, p := range f.P {
-		pointMap[p.X] = p
-	}
-	for _, p := range m.P {
-		pointMap[p.X] = p // Overwrites if X exists, matching AddPoint behavior.
-	}
+	capGuess := len(f.X) + len(m.X)
+	newX := make([]float64, 0, capGuess)
+	newY := make([]float64, 0, capGuess)
+	newEpoch := make([]uint32, 0, capGuess)
+	newIndices := make([]uint32, 0, capGuess)
 
-	// Convert map back to a slice.
-	newPoints := make([]TFPoint, 0, len(pointMap))
-	for _, p := range pointMap {
-		newPoints = append(newPoints, p)
-	}
-
-	// Sort the new slice of points by X coordinate.
-	slices.SortFunc(newPoints, func(a, b TFPoint) int {
-		if a.X < b.X {
-			return -1
+	i, j := 0, 0
+	for i < len(f.X) && j < len(m.X) {
+		if f.X[i] < m.X[j] {
+			newX = append(newX, f.X[i])
+			newY = append(newY, f.Y[i])
+			newEpoch = append(newEpoch, f.epoch[i])
+			newIndices = append(newIndices, f.indices[i])
+			i++
+		} else if f.X[i] > m.X[j] {
+			newX = append(newX, m.X[j])
+			newY = append(newY, m.Y[j])
+			newEpoch = append(newEpoch, m.epoch[j])
+			newIndices = append(newIndices, m.indices[j])
+			j++
+		} else {
+			newX = append(newX, m.X[j])
+			newY = append(newY, m.Y[j])
+			newEpoch = append(newEpoch, m.epoch[j])
+			newIndices = append(newIndices, m.indices[j])
+			i++
+			j++
 		}
-		if a.X > b.X {
-			return 1
-		}
-		return 0
-	})
+	}
+	for ; i < len(f.X); i++ {
+		newX = append(newX, f.X[i])
+		newY = append(newY, f.Y[i])
+		newEpoch = append(newEpoch, f.epoch[i])
+		newIndices = append(newIndices, f.indices[i])
+	}
+	for ; j < len(m.X); j++ {
+		newX = append(newX, m.X[j])
+		newY = append(newY, m.Y[j])
+		newEpoch = append(newEpoch, m.epoch[j])
+		newIndices = append(newIndices, m.indices[j])
+	}
 
-	f.P = newPoints
+	f.X = newX
+	f.Y = newY
+	f.epoch = newEpoch
+	f.indices = newIndices
+	f.b = make([]float64, len(newX))
+	f.c = make([]float64, len(newX))
+	f.d = make([]float64, len(newX))
 	f.changed = true
 }
 
@@ -605,30 +582,34 @@ func (f *TabulatedFunction) Integrate() float64 {
 	if f.changed {
 		f.update_spline()
 	}
+	l = len(f.X) - 1
 	tmp = 0
-	l = len(f.P) - 1
 	for i = 0; i < l; i++ {
-		// dif = f.P[i+1].X - f.P[i].X
-		dif = f.P[i+1].X - f.P[i].X
-		// term = f.P[i].Y + dif*(f.P[i].b/2+dif*(f.P[i].c/3+dif*f.P[i].d/4))
-		term := f.P[i].d * dif / 4.0
-		term = (term + f.P[i].c/3.0) * dif
-		term = (term + f.P[i].b/2.0) * dif
-		term = (term + f.P[i].Y) * dif
+		dif = f.X[i+1] - f.X[i]
+		term := f.d[i] * dif / 4.0
+		term = (term + f.c[i]/3.0) * dif
+		term = (term + f.b[i]/2.0) * dif
+		term = (term + f.Y[i]) * dif
 		tmp += term
 	}
 	return tmp
 }
 
 func (f *TabulatedFunction) Clear() {
-	f.P = make([]TFPoint, 0)
+	f.X = f.X[:0]
+	f.Y = f.Y[:0]
+	f.b = f.b[:0]
+	f.c = f.c[:0]
+	f.d = f.d[:0]
+	f.epoch = f.epoch[:0]
+	f.indices = f.indices[:0]
 	f.ixmin = 0
 	f.ixmax = 0
 	f.iymin = 0
 	f.iymax = 0
 	f.istep = 0
 	f.changed = false
-	f.index = 1
+	f.nextIndex = 1
 }
 
 func (f *TabulatedFunction) MorePoints() {
@@ -636,38 +617,45 @@ func (f *TabulatedFunction) MorePoints() {
 		f.update_spline()
 	}
 
-	numPoints := len(f.P)
+	numPoints := len(f.X)
 	if numPoints <= 1 {
 		return
 	}
 
-	// The new slice will have the original points plus one interpolated point between each pair.
 	newSize := numPoints + (numPoints - 1)
-	newP := make([]TFPoint, 0, newSize)
+	newX := make([]float64, 0, newSize)
+	newY := make([]float64, 0, newSize)
+	newEpoch := make([]uint32, 0, newSize)
+	newIndices := make([]uint32, 0, newSize)
 
-	// Add the first point
-	newP = append(newP, f.P[0])
+	newX = append(newX, f.X[0])
+	newY = append(newY, f.Y[0])
+	newEpoch = append(newEpoch, f.epoch[0])
+	newIndices = append(newIndices, f.indices[0])
 
 	for i := 0; i < numPoints-1; i++ {
-		p1 := f.P[i]
-		p2 := f.P[i+1]
+		x1, x2 := f.X[i], f.X[i+1]
+		midX := (x1 + x2) / 2.0
 
-		// Add interpolated midpoint and then the next original point
-		midX := (p1.X + p2.X) / 2.0
-		newP = append(newP, TFPoint{
-			X:     midX,
-			Y:     f.F(midX),
-			Epoch: p2.Epoch,
-			b:     0,
-			c:     0,
-			d:     0,
-			index: f.index,
-		})
-		f.index++
-		newP = append(newP, p2)
+		newX = append(newX, midX)
+		newY = append(newY, f.F(midX))
+		newEpoch = append(newEpoch, f.epoch[i+1])
+		newIndices = append(newIndices, f.nextIndex)
+		f.nextIndex++
+
+		newX = append(newX, x2)
+		newY = append(newY, f.Y[i+1])
+		newEpoch = append(newEpoch, f.epoch[i+1])
+		newIndices = append(newIndices, f.indices[i+1])
 	}
 
-	f.P = newP
+	f.X = newX
+	f.Y = newY
+	f.epoch = newEpoch
+	f.indices = newIndices
+	f.b = make([]float64, len(newX))
+	f.c = make([]float64, len(newX))
+	f.d = make([]float64, len(newX))
 	f.changed = true
 }
 
@@ -679,11 +667,11 @@ func (f *TabulatedFunction) Derivative() {
 	if f.Order > 0 {
 		f.Order--
 	}
-	for i = range f.P {
-		f.P[i].Y = f.P[i].b
-		f.P[i].b = f.P[i].c * 2.0
-		f.P[i].c = f.P[i].d * 3.0
-		f.P[i].d = 0
+	for i = range f.X {
+		f.Y[i] = f.b[i]
+		f.b[i] = f.c[i] * 2.0
+		f.c[i] = f.d[i] * 3.0
+		f.d[i] = 0
 	}
 	f.changed = true
 }
@@ -695,47 +683,46 @@ func (f *TabulatedFunction) Integral() {
 	if f.changed {
 		f.update_spline()
 	}
-	j = len(f.P) - 1
+	j = len(f.X) - 1
 	acc = 0
 	prev_acc = 0
 	if f.Order < 3 {
-		f.P[0].d = f.P[0].c / 3.0
-		f.P[0].c = f.P[0].b / 2.0
-		f.P[0].b = f.P[0].Y
-		f.P[0].Y = 0
+		f.d[0] = f.c[0] / 3.0
+		f.c[0] = f.b[0] / 2.0
+		f.b[0] = f.Y[0]
+		f.Y[0] = 0
 		for i = 1; i <= j; i++ {
-			r = f.P[i].X - f.P[i-1].X
-			f.P[i].d = f.P[i].c / 3.0
-			f.P[i].c = f.P[i].b / 2.0
-			f.P[i].b = f.P[i].Y
-			// f.P[i].Y = f.P[i-1].Y + r*(f.P[i-1].b+r*(f.P[i-1].c+r*f.P[i-1].d))
-			term := r * f.P[i-1].d
-			term = (f.P[i-1].c + term) * r
-			term = (f.P[i-1].b + term) * r
-			f.P[i].Y = f.P[i-1].Y + term
+			r = f.X[i] - f.X[i-1]
+			f.d[i] = f.c[i] / 3.0
+			f.c[i] = f.b[i] / 2.0
+			f.b[i] = f.Y[i]
+			term := r * f.d[i-1]
+			term = (f.c[i-1] + term) * r
+			term = (f.b[i-1] + term) * r
+			f.Y[i] = f.Y[i-1] + term
 		}
 		f.Order++
 		f.changed = true
 	} else {
-		prev_acc = f.P[0].d / 4.0
-		f.P[0].d = f.P[0].c / 3.0
-		f.P[0].c = f.P[0].b / 2.0
-		f.P[0].b = f.P[0].Y
-		f.P[0].Y = 0
+		prev_acc = f.d[0] / 4.0
+		f.d[0] = f.c[0] / 3.0
+		f.c[0] = f.b[0] / 2.0
+		f.b[0] = f.Y[0]
+		f.Y[0] = 0
 		for i = 1; i <= j; i++ {
-			r = f.P[i].X - f.P[i-1].X
-			acc = f.P[i].d / 4.0
+			r = f.X[i] - f.X[i-1]
+			acc = f.d[i] / 4.0
 			// Calculate the integral value at the end of segment i-1 to use as Y[i]
 			term := r * prev_acc
-			term = (f.P[i-1].d + term) * r
-			term = (f.P[i-1].c + term) * r
-			term = (f.P[i-1].b + term) * r
-			integralVal := f.P[i-1].Y + term
+			term = (f.d[i-1] + term) * r
+			term = (f.c[i-1] + term) * r
+			term = (f.b[i-1] + term) * r
+			integralVal := f.Y[i-1] + term
 
-			f.P[i].d = f.P[i].c / 3.0
-			f.P[i].c = f.P[i].b / 2.0
-			f.P[i].b = f.P[i].Y
-			f.P[i].Y = integralVal
+			f.d[i] = f.c[i] / 3.0
+			f.c[i] = f.b[i] / 2.0
+			f.b[i] = f.Y[i]
+			f.Y[i] = integralVal
 			prev_acc = acc
 		}
 		f.changed = true
@@ -746,27 +733,31 @@ func (f *TabulatedFunction) Expand(n int) {
 	if f.changed {
 		f.update_spline()
 	}
+	if len(f.X) < 2 {
+		return
+	}
 
-	v1 := TFPoint{X: f.ixmin - f.istep, Y: f.iymax, Epoch: f.P[0].Epoch}
-	v2 := TFPoint{X: f.ixmax + f.istep, Y: f.iymax, Epoch: f.P[len(f.P)-1].Epoch}
+	v1X, v1Y, v1Epoch := f.ixmin-f.istep, f.iymax, f.epoch[0]
+	v2X, v2Y, v2Epoch := f.ixmax+f.istep, f.iymax, f.epoch[len(f.X)-1]
 
 	midY := (f.iymin + f.iymax) / 2.0
 
 	for step := 0; step < n; step++ {
-
-		if len(f.P) < 2 {
+		if len(f.X) < 2 {
 			break
 		}
 
-		tempP := make([]TFPoint, 0, len(f.P)+2)
-		tempP = append(tempP, v1)
-		tempP = append(tempP, f.P...)
-		tempP = append(tempP, v2)
+		tempX := make([]float64, 0, len(f.X)+2)
+		tempY := make([]float64, 0, len(f.Y)+2)
+		tempEpoch := make([]uint32, 0, len(f.epoch)+2)
+		tempX = append(append(append(tempX, v1X), f.X...), v2X)
+		tempY = append(append(append(tempY, v1Y), f.Y...), v2Y)
+		tempEpoch = append(append(append(tempEpoch, v1Epoch), f.epoch...), v2Epoch)
 
 		var indices []int
 		var andices []int
-		for i, p := range tempP {
-			if p.Y > midY {
+		for i, y := range tempY {
+			if y > midY {
 				indices = append(indices, i)
 			} else {
 				andices = append(andices, i)
@@ -778,7 +769,7 @@ func (f *TabulatedFunction) Expand(n int) {
 			maxDist := -1.0
 			bestIdx := -1
 			for j := 0; j < len(indices)-1; j++ {
-				dist := tempP[indices[j+1]].X - tempP[indices[j]].X
+				dist := tempX[indices[j+1]] - tempX[indices[j]]
 				if dist > maxDist {
 					maxDist = dist
 					bestIdx = j
@@ -787,11 +778,10 @@ func (f *TabulatedFunction) Expand(n int) {
 			if bestIdx == -1 {
 				break
 			}
-			p1 := tempP[indices[bestIdx]]
-			p2 := tempP[indices[bestIdx+1]]
-			midX := (p1.X + p2.X) / 2.0
+			idx1, idx2 := indices[bestIdx], indices[bestIdx+1]
+			midX := (tempX[idx1] + tempX[idx2]) / 2.0
 			if f.canInsertPoint(midX) {
-				f.AddPoint(midX, (p1.Y+p2.Y)/2.0, p1.Epoch)
+				f.AddPoint(midX, (tempY[idx1]+tempY[idx2])/2.0, tempEpoch[idx1])
 			}
 		}
 
@@ -800,7 +790,7 @@ func (f *TabulatedFunction) Expand(n int) {
 			maxDist := -1.0
 			bestIdx := -1
 			for j := 0; j < len(andices)-1; j++ {
-				dist := tempP[andices[j+1]].X - tempP[andices[j]].X
+				dist := tempX[andices[j+1]] - tempX[andices[j]]
 				if dist > maxDist {
 					maxDist = dist
 					bestIdx = j
@@ -809,11 +799,10 @@ func (f *TabulatedFunction) Expand(n int) {
 			if bestIdx == -1 {
 				break
 			}
-			p1 := tempP[andices[bestIdx]]
-			p2 := tempP[andices[bestIdx+1]]
-			midX := (p1.X + p2.X) / 2.0
+			idx1, idx2 := andices[bestIdx], andices[bestIdx+1]
+			midX := (tempX[idx1] + tempX[idx2]) / 2.0
 			if f.canInsertPoint(midX) {
-				f.AddPoint(midX, (p1.Y+p2.Y)/2.0, p1.Epoch)
+				f.AddPoint(midX, (tempY[idx1]+tempY[idx2])/2.0, tempEpoch[idx1])
 			}
 		}
 	}
@@ -857,7 +846,7 @@ func (f *TabulatedFunction) GetYmax() float64 {
 }
 
 func (f *TabulatedFunction) GetNdots() int {
-	return len(f.P)
+	return len(f.X)
 }
 
 func (f *TabulatedFunction) String() string {
@@ -866,31 +855,34 @@ func (f *TabulatedFunction) String() string {
 	s = fmt.Sprintf("%s\tixmin: %v; ixmax: %v\n", s, f.ixmin, f.ixmax)
 	s = fmt.Sprintf("%s\tiymin: %v; iymax: %v\n", s, f.iymin, f.iymax)
 	s = fmt.Sprintf("%s\tistep: %v\n", s, f.istep)
-	s = fmt.Sprintf("%s\tPoints: %v\n", s, f.P)
+	s = fmt.Sprintf("%s\tPoints count: %v\n", s, len(f.X))
 	return s
 }
 
 func (f *TabulatedFunction) Epoch(epoch uint32) {
-	slices.SortFunc(f.P, func(a, b TFPoint) int {
-		if a.Epoch >= epoch && b.Epoch < epoch {
-			return -1
+	w := 0
+	for r := 0; r < len(f.X); r++ {
+		if f.epoch[r] >= epoch {
+			if w != r {
+				f.X[w] = f.X[r]
+				f.Y[w] = f.Y[r]
+				f.b[w] = f.b[r]
+				f.c[w] = f.c[r]
+				f.d[w] = f.d[r]
+				f.epoch[w] = f.epoch[r]
+				f.indices[w] = f.indices[r]
+			}
+			w++
 		}
-		if a.Epoch < epoch && b.Epoch >= epoch {
-			return 1
-		}
-		if a.X < b.X {
-			return -1
-		}
-		if a.X > b.X {
-			return 1
-		}
-		return 0
-	})
-	i := slices.IndexFunc(f.P, func(p TFPoint) bool {
-		return p.Epoch < epoch
-	})
-	if i >= 0 {
-		f.P = slices.Delete(f.P, i, len(f.P))
+	}
+	if w != len(f.X) {
+		f.X = f.X[:w]
+		f.Y = f.Y[:w]
+		f.b = f.b[:w]
+		f.c = f.c[:w]
+		f.d = f.d[:w]
+		f.epoch = f.epoch[:w]
+		f.indices = f.indices[:w]
 		f.changed = true
 	}
 }
@@ -912,7 +904,7 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 	minIndex, maxIndex := f.NormaliseIndices()
 
 	// If there are no points, draw a blank page and exit to avoid errors.
-	if len(f.P) == 0 {
+	if len(f.X) == 0 {
 		fmt.Fprintf(ps, `%%!PS
 showpage
 quit
@@ -1102,21 +1094,20 @@ quit
 `)
 
 	fmt.Fprintf(ps, "/XValues [\n")
-	for i, p := range f.P {
-		fmt.Fprintf(ps, " %v\t%% %v\n", (p.X-f.ixmin)/(f.ixmax-f.ixmin), i)
+	for i, x := range f.X {
+		fmt.Fprintf(ps, " %v\t%% %v\n", (x-f.ixmin)/(f.ixmax-f.ixmin), i)
 	}
 	fmt.Fprintf(ps, "] def\n")
 
 	fmt.Fprintf(ps, "/YValues [\n")
-	for i, p := range f.P {
-		fmt.Fprintf(ps, " %v\t%% %v", p.Y, i)
-		if i > 0 && i < len(f.P)-1 {
-			// f.P[i-1].Y+(f.P[i+1].Y-f.P[i-1].Y)*(f.P[i].X-f.P[i-1].X)/(f.P[i+1].X-f.P[i-1].X)
-			yPrev := f.P[i-1].Y
-			yNext := f.P[i+1].Y
-			xPrev := f.P[i-1].X
-			xNext := f.P[i+1].X
-			xCurr := f.P[i].X
+	for i, y := range f.Y {
+		fmt.Fprintf(ps, " %v\t%% %v", y, i)
+		if i > 0 && i < len(f.X)-1 {
+			yPrev := f.Y[i-1]
+			yNext := f.Y[i+1]
+			xPrev := f.X[i-1]
+			xNext := f.X[i+1]
+			xCurr := f.X[i]
 
 			dy := yNext - yPrev
 			dx1 := xCurr - xPrev
@@ -1129,8 +1120,8 @@ quit
 	fmt.Fprintf(ps, "] def\n")
 
 	fmt.Fprintf(ps, "/ColorValues [\n")
-	for i, p := range f.P {
-		fmt.Fprintf(ps, " %v\t%% %v\n", p.index, i)
+	for i, idx := range f.indices {
+		fmt.Fprintf(ps, " %v\t%% %v\n", idx, i)
 	}
 	fmt.Fprintf(ps, "] def\n")
 
@@ -1227,25 +1218,17 @@ quit
 }
 
 func (f *TabulatedFunction) canInsertPoint(x float64) bool {
-	if len(f.P) == 0 {
+	if len(f.X) == 0 {
 		return true
 	}
-	k, found := slices.BinarySearchFunc(f.P, TFPoint{X: x}, func(a, b TFPoint) int {
-		if a.X < b.X {
-			return -1
-		}
-		if a.X > b.X {
-			return 1
-		}
-		return 0
-	})
+	k, found := slices.BinarySearch(f.X, x)
 	if found {
 		return false
 	}
-	if k > 0 && x-f.P[k-1].X < f.istep {
+	if k > 0 && x-f.X[k-1] < f.istep {
 		return false
 	}
-	if k < len(f.P) && f.P[k].X-x < f.istep {
+	if k < len(f.X) && f.X[k]-x < f.istep {
 		return false
 	}
 	return true

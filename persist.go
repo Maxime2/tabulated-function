@@ -9,7 +9,9 @@ import (
 type Dump struct {
 	Order       int         `json:"order"`
 	Trapolation Trapolation `json:"trapolation"`
-	Points      []TFPoint   `json:"points"`
+	X           []float64   `json:"x"`
+	Y           []float64   `json:"y"`
+	Epoch       []uint32    `json:"epoch,omitempty"`
 }
 
 // FromDump restores a tabulated function from a dump.
@@ -18,62 +20,84 @@ func (f *TabulatedFunction) FromDump(d *Dump) {
 	f.Order = d.Order
 	f.Trapolation = d.Trapolation
 
-	f.P = make([]TFPoint, len(d.Points))
-	copy(f.P, d.Points)
+	n := min(len(d.X), len(d.Y))
+	f.X = make([]float64, n)
+	f.Y = make([]float64, n)
+	f.epoch = make([]uint32, n)
+	copy(f.X, d.X[:n])
+	copy(f.Y, d.Y[:n])
+	if len(d.Epoch) >= n {
+		copy(f.epoch, d.Epoch[:n])
+	}
 
-	// Ensure points are sorted, as they may come from an untrusted source.
-	slices.SortFunc(f.P, func(a, b TFPoint) int {
-		if a.X < b.X {
-			return -1
+	// Ensure points are sorted by X
+	if !slices.IsSorted(f.X) {
+		type point struct {
+			x, y  float64
+			epoch uint32
 		}
-		if a.X > b.X {
-			return 1
+		pts := make([]point, n)
+		for i := 0; i < n; i++ {
+			pts[i] = point{x: f.X[i], y: f.Y[i], epoch: f.epoch[i]}
 		}
-		return 0
-	})
+		slices.SortFunc(pts, func(a, b point) int {
+			if a.x < b.x {
+				return -1
+			}
+			if a.x > b.x {
+				return 1
+			}
+			return 0
+		})
+		for i := 0; i < n; i++ {
+			f.X[i] = pts[i].x
+			f.Y[i] = pts[i].y
+			f.epoch[i] = pts[i].epoch
+		}
+	}
 
-	// Deduplicate points with the same X coordinate to avoid division by zero in update_spline.
-	if len(f.P) > 1 {
+	// Deduplicate points with the same X coordinate
+	if len(f.X) > 1 {
 		k := 0
-		for i := 1; i < len(f.P); i++ {
-			if f.P[i].X == f.P[k].X {
-				// Average Y values and take the highest epoch, matching AddPoint behavior.
-				f.P[k].Y = (f.P[k].Y + f.P[i].Y) / 2.0
-				if f.P[i].Epoch > f.P[k].Epoch {
-					f.P[k].Epoch = f.P[i].Epoch
+		for i := 1; i < len(f.X); i++ {
+			if f.X[i] == f.X[k] {
+				f.Y[k] = (f.Y[k] + f.Y[i]) / 2.0
+				if f.epoch[i] > f.epoch[k] {
+					f.epoch[k] = f.epoch[i]
 				}
 			} else {
 				k++
-				f.P[k] = f.P[i]
+				f.X[k] = f.X[i]
+				f.Y[k] = f.Y[i]
+				f.epoch[k] = f.epoch[i]
 			}
 		}
-		f.P = f.P[:k+1]
+		f.X = f.X[:k+1]
+		f.Y = f.Y[:k+1]
+		f.epoch = f.epoch[:k+1]
 	}
 
-	// Regenerate indices for points as they cannot be deserialized from JSON (lowercase field)
-	f.index = 1
-	for i := range f.P {
-		f.P[i].index = f.index
-		f.index++
+	f.b = make([]float64, len(f.X))
+	f.c = make([]float64, len(f.X))
+	f.d = make([]float64, len(f.X))
+	f.indices = make([]uint32, len(f.X))
+	f.nextIndex = 1
+	for i := range f.indices {
+		f.indices[i] = f.nextIndex
+		f.nextIndex++
 	}
-
-	f.ixmin = 0
-	f.ixmax = 0
-	f.iymin = 0
-	f.iymax = 0
-	f.istep = 0
 
 	f.update_spline()
 }
 
 // Dump generates a serializable dump for a tabulated function.
 func (f *TabulatedFunction) Dump() *Dump {
-	points := make([]TFPoint, len(f.P))
-	copy(points, f.P)
 	return &Dump{
 		Order:       f.Order,
 		Trapolation: f.Trapolation,
-		Points:      points,
+		X:           slices.Clone(f.X),
+		Y:           slices.Clone(f.Y),
+		Epoch:       slices.Clone(f.epoch),
 	}
 }
 

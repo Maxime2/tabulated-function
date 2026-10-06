@@ -27,8 +27,8 @@ func TestNew(t *testing.T) {
 	if f.Trapolation != TrapolationSpline {
 		t.Errorf("Expected default trapolation to be TrapolationSpline, got %v", f.Trapolation)
 	}
-	if len(f.P) != 0 {
-		t.Errorf("Expected new function to have 0 points, got %d", len(f.P))
+	if f.GetNdots() != 0 {
+		t.Errorf("Expected new function to have 0 points, got %d", f.GetNdots())
 	}
 	if f.changed != false {
 		t.Error("Expected new function to have changed=false")
@@ -49,13 +49,13 @@ func TestAddPointAndF(t *testing.T) {
 	f.AddPoint(3, 30, 0)
 	f.AddPoint(2, 20, 0) // Add out of order
 
-	if len(f.P) != 3 {
-		t.Fatalf("Expected 3 points, got %d", len(f.P))
+	if f.GetNdots() != 3 {
+		t.Fatalf("Expected 3 points, got %d", f.GetNdots())
 	}
 
 	// Check if sorted
-	if !(f.P[0].X == 1 && f.P[1].X == 2 && f.P[2].X == 3) {
-		t.Errorf("Points are not sorted correctly: %v", f.P)
+	if !(f.X[0] == 1 && f.X[1] == 2 && f.X[2] == 3) {
+		t.Errorf("Points are not sorted correctly: %v", f.X)
 	}
 
 	testCases := []struct {
@@ -151,6 +151,22 @@ func TestOrders(t *testing.T) {
 		}
 		if !almostEqual(f.F(1.5), 0.5) {
 			t.Errorf("F(1.5) = %v; want 0.5", f.F(1.5))
+		}
+	})
+
+	t.Run("Order 2 (Quadratic)", func(t *testing.T) {
+		q := New()
+		q.SetOrder(2)
+		q.AddPoint(0, 0, 0)
+		q.AddPoint(1, 1, 0)
+		q.AddPoint(2, 4, 0)
+
+		// Interpolating at 0.5 on y = x^2
+		if !almostEqual(q.F(0.5), 0.25) {
+			t.Errorf("Order 2 F(0.5) = %v; want 0.25", q.F(0.5))
+		}
+		if !almostEqual(q.F(1.0), 1.0) {
+			t.Errorf("Order 2 F(1.0) = %v; want 1.0", q.F(1.0))
 		}
 	})
 
@@ -266,6 +282,57 @@ func TestTrapolationCosine(t *testing.T) {
 	}
 }
 
+func TestTrapolationShift(t *testing.T) {
+	f := New()
+	f.SetTrapolation(TrapolationShift)
+	f.AddPoint(0, 10, 0)
+	f.AddPoint(2, 20, 0)
+
+	// Interpolation between 0 and 2 should return the midpoint average: (10 + 20) / 2 = 15
+	if y := f.F(1); !almostEqual(y, 15.0) {
+		t.Errorf("Shift F(1) = %v; want 15.0", y)
+	}
+
+	// Extrapolation outside boundary
+	if y := f.F(-1); !almostEqual(y, 10.0) {
+		t.Errorf("Shift extrapolation left F(-1) = %v; want 10.0", y)
+	}
+	if y := f.F(3); !almostEqual(y, 20.0) {
+		t.Errorf("Shift extrapolation right F(3) = %v; want 20.0", y)
+	}
+}
+
+func TestTrapolationMinMax(t *testing.T) {
+	f := New()
+	f.SetTrapolation(TrapolationMinMax)
+	f.AddPoint(0, 0, 0)
+	f.AddPoint(10, 10, 0)
+
+	// Force update_spline to populate bounds
+	_ = f.F(5)
+
+	// Should produce valid numeric value within [iymin, iymax]
+	y := f.F(5)
+	if math.IsNaN(y) || y < 0 || y > 10 {
+		t.Errorf("MinMax F(5) = %v; want value in [0, 10]", y)
+	}
+}
+
+func TestTrapolationCosineExtrapolation(t *testing.T) {
+	f := New()
+	f.SetTrapolation(TrapolationCosine)
+	f.AddPoint(0, 10, 0)
+	f.AddPoint(10, 20, 0)
+
+	// Extrapolation beyond bounds should clamp to boundary points
+	if y := f.F(-5); !almostEqual(y, 10.0) {
+		t.Errorf("Cosine left extrapolation F(-5) = %v; want 10.0", y)
+	}
+	if y := f.F(15); !almostEqual(y, 20.0) {
+		t.Errorf("Cosine right extrapolation F(15) = %v; want 20.0", y)
+	}
+}
+
 func TestLoadConstant(t *testing.T) {
 	f := New()
 	f.LoadConstant(100, -5, 5)
@@ -316,12 +383,12 @@ func TestJSON(t *testing.T) {
 	if f1.Order != f2.Order {
 		t.Errorf("Order mismatch: original=%d, unmarshaled=%d", f1.Order, f2.Order)
 	}
-	if len(f1.P) != len(f2.P) {
-		t.Fatalf("Points count mismatch: original=%d, unmarshaled=%d", len(f1.P), len(f2.P))
+	if f1.GetNdots() != f2.GetNdots() {
+		t.Fatalf("Points count mismatch: original=%d, unmarshaled=%d", f1.GetNdots(), f2.GetNdots())
 	}
-	for i := range f1.P {
-		if !almostEqual(f1.P[i].X, f2.P[i].X) || !almostEqual(f1.P[i].Y, f2.P[i].Y) || f1.P[i].Epoch != f2.P[i].Epoch {
-			t.Errorf("Point mismatch at index %d:\nOriginal: %+v\nUnmarshaled: %+v", i, f1.P[i], f2.P[i])
+	for i := range f1.X {
+		if !almostEqual(f1.X[i], f2.X[i]) || !almostEqual(f1.Y[i], f2.Y[i]) || f1.epoch[i] != f2.epoch[i] {
+			t.Errorf("Point mismatch at index %d: original=(%v,%v,%v) unmarshaled=(%v,%v,%v)", i, f1.X[i], f1.Y[i], f1.epoch[i], f2.X[i], f2.Y[i], f2.epoch[i])
 		}
 	}
 }
@@ -365,6 +432,50 @@ func TestDerivativeAndIntegral(t *testing.T) {
 	}
 }
 
+func TestFromDumpUnsortedAndDeduplication(t *testing.T) {
+	// Test FromDump with unsorted X points and duplicates
+	d := &Dump{
+		Order:       1,
+		Trapolation: TrapolationLinear,
+		X:           []float64{3.0, 1.0, 2.0, 2.0},
+		Y:           []float64{30.0, 10.0, 20.0, 40.0},
+		Epoch:       []uint32{0, 0, 1, 2},
+	}
+
+	f := New()
+	f.FromDump(d)
+
+	// After sorting: (1, 10), (2, 20), (2, 40), (3, 30)
+	// After deduplicating (2, 20) and (2, 40): Y=(20+40)/2=30, Epoch=max(1,2)=2
+	if f.GetNdots() != 3 {
+		t.Fatalf("Expected 3 points after deduplication, got %d", f.GetNdots())
+	}
+	if !almostEqual(f.X[0], 1.0) || !almostEqual(f.Y[0], 10.0) {
+		t.Errorf("Point 0 mismatch: got (%v, %v), want (1.0, 10.0)", f.X[0], f.Y[0])
+	}
+	if !almostEqual(f.X[1], 2.0) || !almostEqual(f.Y[1], 30.0) || f.epoch[1] != 2 {
+		t.Errorf("Point 1 mismatch: got (%v, %v, ep %v), want (2.0, 30.0, ep 2)", f.X[1], f.Y[1], f.epoch[1])
+	}
+	if !almostEqual(f.X[2], 3.0) || !almostEqual(f.Y[2], 30.0) {
+		t.Errorf("Point 2 mismatch: got (%v, %v), want (3.0, 30.0)", f.X[2], f.Y[2])
+	}
+}
+
+func TestJSONEmpty(t *testing.T) {
+	f := New()
+	data, err := json.Marshal(f)
+	if err != nil {
+		t.Fatalf("Marshal empty failed: %v", err)
+	}
+	var f2 TabulatedFunction
+	if err := json.Unmarshal(data, &f2); err != nil {
+		t.Fatalf("Unmarshal empty failed: %v", err)
+	}
+	if f2.GetNdots() != 0 {
+		t.Errorf("Expected 0 points, got %d", f2.GetNdots())
+	}
+}
+
 func TestMorePoints(t *testing.T) {
 	f := New()
 	f.SetOrder(1)
@@ -376,11 +487,11 @@ func TestMorePoints(t *testing.T) {
 	if f.GetNdots() != 3 {
 		t.Fatalf("MorePoints should have added 1 point, got %d total", f.GetNdots())
 	}
-	if !almostEqual(f.P[1].X, 1.0) {
-		t.Errorf("New point has X=%v, want 1.0", f.P[1].X)
+	if !almostEqual(f.X[1], 1.0) {
+		t.Errorf("New point has X=%v, want 1.0", f.X[1])
 	}
-	if !almostEqual(f.P[1].Y, 2.0) {
-		t.Errorf("New point has Y=%v, want 2.0", f.P[1].Y)
+	if !almostEqual(f.Y[1], 2.0) {
+		t.Errorf("New point has Y=%v, want 2.0", f.Y[1])
 	}
 }
 
@@ -396,8 +507,14 @@ func TestEpoch(t *testing.T) {
 	if f.GetNdots() != 2 {
 		t.Fatalf("After Epoch(2), expected 2 points, got %d", f.GetNdots())
 	}
-	if f.P[0].X != 2 || f.P[1].X != 3 {
-		t.Errorf("Remaining points are incorrect: %v", f.P)
+	if f.X[0] != 2 || f.X[1] != 3 {
+		t.Errorf("Remaining points are incorrect: %v", f.X)
+	}
+
+	// Purge all points
+	f.Epoch(10)
+	if f.GetNdots() != 0 {
+		t.Errorf("Expected 0 points after Epoch(10), got %d", f.GetNdots())
 	}
 }
 
@@ -407,9 +524,9 @@ func TestSmooth(t *testing.T) {
 	f.AddPoint(1, 10, 0) // A noisy point
 	f.AddPoint(2, 4, 0)
 
-	y_before := f.P[1].Y
+	y_before := f.Y[1]
 	f.Smooth()
-	y_after := f.P[1].Y
+	y_after := f.Y[1]
 
 	if almostEqual(y_before, y_after) {
 		t.Errorf("Smooth() did not change the Y value of the middle point. Before: %v, After: %v", y_before, y_after)
@@ -441,6 +558,26 @@ func TestMultiply(t *testing.T) {
 	}
 	if !almostEqual(f1.F(5), 10) {
 		t.Errorf("F(5) after multiply is %v, want 10.0", f1.F(5))
+	}
+
+	// Multiply functions with non-identical X points
+	g1 := New()
+	g1.SetOrder(1)
+	g1.AddPoint(0, 2, 0)
+	g1.AddPoint(2, 2, 0)
+
+	g2 := New()
+	g2.SetOrder(1)
+	g2.AddPoint(1, 3, 0)
+	g2.AddPoint(3, 3, 0)
+
+	g1.Multiply(g2)
+	// Combined domain should span union [0, 1, 2, 3]
+	if g1.GetNdots() != 4 {
+		t.Fatalf("Expected 4 points after disjoint Multiply, got %d", g1.GetNdots())
+	}
+	if !almostEqual(g1.F(1), 6.0) { // 2 * 3
+		t.Errorf("F(1) after disjoint Multiply = %v; want 6.0", g1.F(1))
 	}
 }
 
@@ -496,17 +633,17 @@ func TestAssign(t *testing.T) {
 	if dest.Trapolation != source.Trapolation {
 		t.Errorf("Trapolation mismatch: dest=%v, source=%v", dest.Trapolation, source.Trapolation)
 	}
-	if len(dest.P) != len(source.P) {
-		t.Fatalf("Points count mismatch: dest=%d, source=%d", len(dest.P), len(source.P))
+	if dest.GetNdots() != source.GetNdots() {
+		t.Fatalf("Points count mismatch: dest=%d, source=%d", dest.GetNdots(), source.GetNdots())
 	}
-	for i := range source.P {
-		if !almostEqual(dest.P[i].X, source.P[i].X) ||
-			!almostEqual(dest.P[i].Y, source.P[i].Y) ||
-			dest.P[i].Epoch != source.P[i].Epoch ||
-			!almostEqual(dest.P[i].b, source.P[i].b) ||
-			!almostEqual(dest.P[i].c, source.P[i].c) ||
-			!almostEqual(dest.P[i].d, source.P[i].d) {
-			t.Errorf("Point mismatch at index %d:\nSource: %+v\nDest: %+v", i, source.P[i], dest.P[i])
+	for i := range source.X {
+		if !almostEqual(dest.X[i], source.X[i]) ||
+			!almostEqual(dest.Y[i], source.Y[i]) ||
+			dest.epoch[i] != source.epoch[i] ||
+			!almostEqual(dest.b[i], source.b[i]) ||
+			!almostEqual(dest.c[i], source.c[i]) ||
+			!almostEqual(dest.d[i], source.d[i]) {
+			t.Errorf("Point mismatch at index %d", i)
 		}
 	}
 	// Check internal state variables (will trigger update_spline in dest again, but values should be consistent)
@@ -544,21 +681,37 @@ func TestMerge(t *testing.T) {
 		t.Fatalf("After merge, expected 4 points, got %d", f1.GetNdots())
 	}
 
-	// Verify points are sorted and merged correctly
-	expectedPoints := []TFPoint{
-		{X: 0, Y: 0, Epoch: 0},
-		{X: 1, Y: 10, Epoch: 0},
-		{X: 2, Y: 22, Epoch: 1}, // Y overwritten, Epoch from the latest (f2's point)
-		{X: 3, Y: 30, Epoch: 0},
+	type expectedPoint struct {
+		x, y  float64
+		epoch uint32
+	}
+	expectedPoints := []expectedPoint{
+		{x: 0, y: 0, epoch: 0},
+		{x: 1, y: 10, epoch: 0},
+		{x: 2, y: 22, epoch: 1},
+		{x: 3, y: 30, epoch: 0},
 	}
 
 	for i, ep := range expectedPoints {
-		if i >= len(f1.P) {
+		if i >= len(f1.X) {
 			t.Fatalf("Missing point at index %d", i)
 		}
-		if !almostEqual(f1.P[i].X, ep.X) || !almostEqual(f1.P[i].Y, ep.Y) || f1.P[i].Epoch != ep.Epoch {
-			t.Errorf("Point %d mismatch:\nGot: %+v\nWant: %+v", i, f1.P[i], ep)
+		if !almostEqual(f1.X[i], ep.x) || !almostEqual(f1.Y[i], ep.y) || f1.epoch[i] != ep.epoch {
+			t.Errorf("Point %d mismatch: got (%v, %v, %v), want (%v, %v, %v)", i, f1.X[i], f1.Y[i], f1.epoch[i], ep.x, ep.y, ep.epoch)
 		}
+	}
+
+	// Merging into empty or merging empty
+	empty := New()
+	nonEmpty := New()
+	nonEmpty.AddPoint(1, 5, 0)
+	empty.Merge(nonEmpty)
+	if empty.GetNdots() != 1 || !almostEqual(empty.F(1), 5.0) {
+		t.Errorf("Merge into empty failed, dots=%d", empty.GetNdots())
+	}
+	nonEmpty.Merge(New())
+	if nonEmpty.GetNdots() != 1 {
+		t.Errorf("Merge empty into non-empty altered point count: %d", nonEmpty.GetNdots())
 	}
 }
 
@@ -646,24 +799,54 @@ func TestNormalizeIndices(t *testing.T) {
 	f.AddPoint(2, 20, 0)
 	f.AddPoint(3, 30, 0)
 
-	// Manually offset indices to test shifting logic
-	f.P[0].index = 10
-	f.P[1].index = 12
-	f.P[2].index = 15
-	f.index = 16
+	f.indices[0] = 10
+	f.indices[1] = 12
+	f.indices[2] = 15
+	f.nextIndex = 16
 
 	f.NormaliseIndices()
 
-	if f.P[0].index != 1 {
-		t.Errorf("Expected point 0 index to be 1, got %d", f.P[0].index)
+	if f.indices[0] != 1 {
+		t.Errorf("Expected point 0 index to be 1, got %d", f.indices[0])
 	}
-	if f.P[1].index != 3 {
-		t.Errorf("Expected point 1 index to be 3, got %d", f.P[1].index)
+	if f.indices[1] != 3 {
+		t.Errorf("Expected point 1 index to be 3, got %d", f.indices[1])
 	}
-	if f.P[2].index != 6 {
-		t.Errorf("Expected point 2 index to be 6, got %d", f.P[2].index)
+	if f.indices[2] != 6 {
+		t.Errorf("Expected point 2 index to be 6, got %d", f.indices[2])
 	}
-	if f.index != 7 {
-		t.Errorf("Expected f.index generator to be updated to 7, got %d", f.index)
+	if f.nextIndex != 7 {
+		t.Errorf("Expected f.nextIndex generator to be updated to 7, got %d", f.nextIndex)
+	}
+}
+
+func TestEmptyAndSinglePointSafeguards(t *testing.T) {
+	// Empty function operations should not panic
+	f := New()
+	f.Normalise()
+	minIdx, maxIdx := f.NormaliseIndices()
+	if minIdx != 0 || maxIdx != 0 {
+		t.Errorf("NormaliseIndices on empty = (%d, %d); want (0, 0)", minIdx, maxIdx)
+	}
+	f.Smooth()
+	f.MorePoints()
+	f.Expand(2)
+	if !math.IsNaN(f.Integrate()) && f.Integrate() != 0 {
+		t.Errorf("Integrate on empty = %v; want 0", f.Integrate())
+	}
+
+	// Single point function
+	f.AddPoint(5, 42, 0)
+	f.Smooth()     // Should be a no-op (< 3 points)
+	f.MorePoints() // Should be a no-op (<= 1 point)
+	if f.GetNdots() != 1 {
+		t.Fatalf("Expected 1 point, got %d", f.GetNdots())
+	}
+	// Querying single point
+	if !almostEqual(f.F(5), 42.0) {
+		t.Errorf("Single point F(5) = %v; want 42.0", f.F(5))
+	}
+	if !almostEqual(f.F(0), 42.0) { // Boundary extrapolation returns the sole point
+		t.Errorf("Single point extrapolation F(0) = %v; want 42.0", f.F(0))
 	}
 }
