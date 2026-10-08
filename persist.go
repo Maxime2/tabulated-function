@@ -77,9 +77,6 @@ func (f *TabulatedFunction) FromDump(d *Dump) {
 		f.epoch = f.epoch[:k+1]
 	}
 
-	f.b = make([]float64, len(f.X))
-	f.c = make([]float64, len(f.X))
-	f.d = make([]float64, len(f.X))
 	f.indices = make([]uint32, len(f.X))
 	f.nextIndex = 1
 	for i := range f.indices {
