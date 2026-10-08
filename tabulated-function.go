@@ -1,6 +1,7 @@
 package tabulatedfunction
 
 import (
+	"bufio"
 	"fmt"
 	"math"
 	"os"
@@ -205,6 +206,11 @@ func (f *TabulatedFunction) update_spline() {
 	f.changed = false
 	i = len(f.X)
 	if i == 0 {
+		f.ixmin = 0
+		f.ixmax = 0
+		f.iymin = 0
+		f.iymax = 0
+		f.istep = 0
 		return
 	}
 	j = i - 1
@@ -313,6 +319,10 @@ func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
 }
 
 func (f *TabulatedFunction) Normalise() {
+	if f.changed {
+		f.update_spline()
+	}
+
 	var i int
 	ym := math.Max(math.Abs(f.iymin), math.Abs(f.iymax))
 
@@ -354,10 +364,13 @@ func (f *TabulatedFunction) Smooth() {
 		return
 	}
 
-	originalYs := slices.Clone(f.Y)
-
+	prev := f.Y[0]
+	curr := f.Y[1]
 	for i := 1; i < n-1; i++ {
-		f.Y[i] = (originalYs[i-1] + originalYs[i] + originalYs[i+1]) / 3.0
+		next := f.Y[i+1]
+		f.Y[i] = (prev + curr + next) / 3.0
+		prev = curr
+		curr = next
 	}
 	f.changed = true
 }
@@ -369,20 +382,33 @@ func (f *TabulatedFunction) Multiply(by *TabulatedFunction) {
 	if by.changed {
 		by.update_spline()
 	}
+	if len(f.X) == 0 {
+		return
+	}
+	if len(by.X) == 0 {
+		f.Clear()
+		return
+	}
 
-	xCoords := make(map[float64]struct{})
-	for _, x := range f.X {
-		xCoords[x] = struct{}{}
+	// Two-pointer merge over already sorted X slices
+	capGuess := len(f.X) + len(by.X)
+	sortedX := make([]float64, 0, capGuess)
+	i, j := 0, 0
+	for i < len(f.X) && j < len(by.X) {
+		if f.X[i] < by.X[j] {
+			sortedX = append(sortedX, f.X[i])
+			i++
+		} else if f.X[i] > by.X[j] {
+			sortedX = append(sortedX, by.X[j])
+			j++
+		} else {
+			sortedX = append(sortedX, f.X[i])
+			i++
+			j++
+		}
 	}
-	for _, x := range by.X {
-		xCoords[x] = struct{}{}
-	}
-
-	sortedX := make([]float64, 0, len(xCoords))
-	for x := range xCoords {
-		sortedX = append(sortedX, x)
-	}
-	slices.Sort(sortedX)
+	sortedX = append(sortedX, f.X[i:]...)
+	sortedX = append(sortedX, by.X[j:]...)
 
 	k := len(sortedX)
 	newY := make([]float64, k)
@@ -483,6 +509,7 @@ func (f *TabulatedFunction) Merge(m *TabulatedFunction) {
 	f.Y = newY
 	f.epoch = newEpoch
 	f.indices = newIndices
+	f.nextIndex = max(f.nextIndex, m.nextIndex)
 	f.changed = true
 }
 
@@ -496,6 +523,10 @@ func (f *TabulatedFunction) Integrate() float64 {
 	for ; i+2 < n; i += 2 {
 		h1 := f.X[i+1] - f.X[i]
 		h2 := f.X[i+2] - f.X[i+1]
+		if h1 <= 0 || h2 <= 0 {
+			sum += h1*(f.Y[i]+f.Y[i+1])/2.0 + h2*(f.Y[i+1]+f.Y[i+2])/2.0
+			continue
+		}
 		term1 := (2.0 - h2/h1) * f.Y[i]
 		term2 := ((h1 + h2) * (h1 + h2) / (h1 * h2)) * f.Y[i+1]
 		term3 := (2.0 - h1/h2) * f.Y[i+2]
@@ -548,7 +579,7 @@ func (f *TabulatedFunction) MorePoints() {
 		midX := (x1 + x2) / 2.0
 
 		newX = append(newX, midX)
-		newY = append(newY, f.F(midX))
+		newY = append(newY, f._interpolate(midX, i, i+1, f.Trapolation))
 		newEpoch = append(newEpoch, f.epoch[i+1])
 		newIndices = append(newIndices, f.nextIndex)
 		f.nextIndex++
@@ -608,13 +639,14 @@ func (f *TabulatedFunction) Integral() {
 	if n < 2 {
 		return
 	}
-	newY := make([]float64, n)
-	newY[0] = 0
+	prevY := f.Y[0]
+	f.Y[0] = 0
 	for i := 1; i < n; i++ {
 		dx := f.X[i] - f.X[i-1]
-		newY[i] = newY[i-1] + (f.Y[i-1]+f.Y[i])/2.0*dx
+		currY := f.Y[i]
+		f.Y[i] = f.Y[i-1] + (prevY+currY)/2.0*dx
+		prevY = currY
 	}
-	f.Y = newY
 	f.changed = true
 }
 
@@ -630,23 +662,48 @@ func (f *TabulatedFunction) Expand(n int) {
 	v2X, v2Y, v2Epoch := f.ixmax+f.istep, f.iymax, f.epoch[len(f.X)-1]
 
 	midY := (f.iymin + f.iymax) / 2.0
+	var indices []int
+	var andices []int
 
 	for step := 0; step < n; step++ {
+		if f.changed {
+			f.update_spline()
+			midY = (f.iymin + f.iymax) / 2.0
+		}
 		if len(f.X) < 2 {
 			break
 		}
 
-		tempX := make([]float64, 0, len(f.X)+2)
-		tempY := make([]float64, 0, len(f.Y)+2)
-		tempEpoch := make([]uint32, 0, len(f.epoch)+2)
-		tempX = append(append(append(tempX, v1X), f.X...), v2X)
-		tempY = append(append(append(tempY, v1Y), f.Y...), v2Y)
-		tempEpoch = append(append(append(tempEpoch, v1Epoch), f.epoch...), v2Epoch)
+		getX := func(i int) float64 {
+			if i == 0 {
+				return v1X
+			} else if i <= len(f.X) {
+				return f.X[i-1]
+			}
+			return v2X
+		}
+		getY := func(i int) float64 {
+			if i == 0 {
+				return v1Y
+			} else if i <= len(f.Y) {
+				return f.Y[i-1]
+			}
+			return v2Y
+		}
+		getEpoch := func(i int) uint32 {
+			if i == 0 {
+				return v1Epoch
+			} else if i <= len(f.epoch) {
+				return f.epoch[i-1]
+			}
+			return v2Epoch
+		}
 
-		var indices []int
-		var andices []int
-		for i, y := range tempY {
-			if y > midY {
+		indices = indices[:0]
+		andices = andices[:0]
+		total := len(f.X) + 2
+		for i := 0; i < total; i++ {
+			if getY(i) > midY {
 				indices = append(indices, i)
 			} else {
 				andices = append(andices, i)
@@ -654,11 +711,10 @@ func (f *TabulatedFunction) Expand(n int) {
 		}
 
 		if len(indices) > 1 {
-
 			maxDist := -1.0
 			bestIdx := -1
 			for j := 0; j < len(indices)-1; j++ {
-				dist := tempX[indices[j+1]] - tempX[indices[j]]
+				dist := getX(indices[j+1]) - getX(indices[j])
 				if dist > maxDist {
 					maxDist = dist
 					bestIdx = j
@@ -668,18 +724,17 @@ func (f *TabulatedFunction) Expand(n int) {
 				break
 			}
 			idx1, idx2 := indices[bestIdx], indices[bestIdx+1]
-			midX := (tempX[idx1] + tempX[idx2]) / 2.0
+			midX := (getX(idx1) + getX(idx2)) / 2.0
 			if f.canInsertPoint(midX) {
-				f.AddPoint(midX, (tempY[idx1]+tempY[idx2])/2.0, tempEpoch[idx1])
+				f.AddPoint(midX, (getY(idx1)+getY(idx2))/2.0, getEpoch(idx1))
 			}
 		}
 
 		if len(andices) > 1 {
-
 			maxDist := -1.0
 			bestIdx := -1
 			for j := 0; j < len(andices)-1; j++ {
-				dist := tempX[andices[j+1]] - tempX[andices[j]]
+				dist := getX(andices[j+1]) - getX(andices[j])
 				if dist > maxDist {
 					maxDist = dist
 					bestIdx = j
@@ -689,9 +744,9 @@ func (f *TabulatedFunction) Expand(n int) {
 				break
 			}
 			idx1, idx2 := andices[bestIdx], andices[bestIdx+1]
-			midX := (tempX[idx1] + tempX[idx2]) / 2.0
+			midX := (getX(idx1) + getX(idx2)) / 2.0
 			if f.canInsertPoint(midX) {
-				f.AddPoint(midX, (tempY[idx1]+tempY[idx2])/2.0, tempEpoch[idx1])
+				f.AddPoint(midX, (getY(idx1)+getY(idx2))/2.0, getEpoch(idx1))
 			}
 		}
 	}
@@ -739,13 +794,19 @@ func (f *TabulatedFunction) GetNdots() int {
 }
 
 func (f *TabulatedFunction) String() string {
-	s := "\nTabulated function:\n"
-	s = fmt.Sprintf("%s\tiOrder: %v; changed: %v\n", s, f.Order, f.changed)
-	s = fmt.Sprintf("%s\tixmin: %v; ixmax: %v\n", s, f.ixmin, f.ixmax)
-	s = fmt.Sprintf("%s\tiymin: %v; iymax: %v\n", s, f.iymin, f.iymax)
-	s = fmt.Sprintf("%s\tistep: %v\n", s, f.istep)
-	s = fmt.Sprintf("%s\tPoints count: %v\n", s, len(f.X))
-	return s
+	if f.changed {
+		f.update_spline()
+	}
+	return fmt.Sprintf("\nTabulated function:\n"+
+		"\tiOrder: %v; changed: %v\n"+
+		"\tixmin: %v; ixmax: %v\n"+
+		"\tiymin: %v; iymax: %v\n"+
+		"\tistep: %v\n"+
+		"\tPoints count: %v\n",
+		f.Order, f.changed,
+		f.ixmin, f.ixmax,
+		f.iymin, f.iymax,
+		f.istep, len(f.X))
 }
 
 func (f *TabulatedFunction) Epoch(epoch uint32) {
@@ -778,6 +839,8 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 	if err != nil {
 		return err
 	}
+	bw := bufio.NewWriter(ps)
+	defer bw.Flush()
 	defer ps.Close()
 
 	if f.changed {
@@ -788,14 +851,14 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 
 	// If there are no points, draw a blank page and exit to avoid errors.
 	if len(f.X) == 0 {
-		fmt.Fprintf(ps, `%%!PS
+		fmt.Fprintf(bw, `%%!PS
 showpage
 quit
 `)
 		return nil
 	}
 
-	fmt.Fprintf(ps, `%%!PS
+	fmt.Fprintf(bw, `%%!PS
 	%% This is the color that the grid is drawn in.
 /grid_major_color {1 .6 .6} def
 /grid_color {.7 1 1} def
@@ -976,15 +1039,20 @@ quit
 
 `)
 
-	fmt.Fprintf(ps, "/XValues [\n")
+	fmt.Fprintf(bw, "/XValues [\n")
+	xRange := f.ixmax - f.ixmin
 	for i, x := range f.X {
-		fmt.Fprintf(ps, " %v\t%% %v\n", (x-f.ixmin)/(f.ixmax-f.ixmin), i)
+		xNorm := 0.0
+		if xRange != 0 {
+			xNorm = (x - f.ixmin) / xRange
+		}
+		fmt.Fprintf(bw, " %v\t%% %v\n", xNorm, i)
 	}
-	fmt.Fprintf(ps, "] def\n")
+	fmt.Fprintf(bw, "] def\n")
 
-	fmt.Fprintf(ps, "/YValues [\n")
+	fmt.Fprintf(bw, "/YValues [\n")
 	for i, y := range f.Y {
-		fmt.Fprintf(ps, " %v\t%% %v", y, i)
+		fmt.Fprintf(bw, " %v\t%% %v", y, i)
 		if i > 0 && i < len(f.X)-1 {
 			yPrev := f.Y[i-1]
 			yNext := f.Y[i+1]
@@ -995,33 +1063,35 @@ quit
 			dy := yNext - yPrev
 			dx1 := xCurr - xPrev
 			dx2 := xNext - xPrev
-			val := yPrev + dy*dx1/dx2
-			fmt.Fprintf(ps, "\t%% interp: %v", val)
+			if dx2 != 0 {
+				val := yPrev + dy*dx1/dx2
+				fmt.Fprintf(bw, "\t%% interp: %v", val)
+			}
 		}
-		fmt.Fprintf(ps, "\n")
+		fmt.Fprintf(bw, "\n")
 	}
-	fmt.Fprintf(ps, "] def\n")
+	fmt.Fprintf(bw, "] def\n")
 
-	fmt.Fprintf(ps, "/ColorValues [\n")
+	fmt.Fprintf(bw, "/ColorValues [\n")
 	for i, idx := range f.indices {
-		fmt.Fprintf(ps, " %v\t%% %v\n", idx, i)
+		fmt.Fprintf(bw, " %v\t%% %v\n", idx, i)
 	}
-	fmt.Fprintf(ps, "] def\n")
+	fmt.Fprintf(bw, "] def\n")
 
-	fmt.Fprintf(ps, "/MinIdx %v def\n", minIndex)
-	fmt.Fprintf(ps, "/MaxIdx %v def\n", maxIndex)
+	fmt.Fprintf(bw, "/MinIdx %v def\n", minIndex)
+	fmt.Fprintf(bw, "/MaxIdx %v def\n", maxIndex)
 
-	fmt.Fprintf(ps, "/Xmin 0 def\n")
-	fmt.Fprintf(ps, "/Xmax 1 def\n")
-	fmt.Fprintf(ps, "/Ymin %v def\n", f.iymin)
-	fmt.Fprintf(ps, "/Ymax %v def\n", f.iymax)
+	fmt.Fprintf(bw, "/Xmin 0 def\n")
+	fmt.Fprintf(bw, "/Xmax 1 def\n")
+	fmt.Fprintf(bw, "/Ymin %v def\n", f.iymin)
+	fmt.Fprintf(bw, "/Ymax %v def\n", f.iymax)
 
-	fmt.Fprintf(ps, `
+	fmt.Fprintf(bw, `
 /Xsize Xmax Xmin sub def
-/Ysize Ymax Ymin sub def
+/Ysize Ymax Ymin sub dup 0 eq { pop 1.0 } if def
 `)
 
-	fmt.Fprintf(ps, `
+	fmt.Fprintf(bw, `
 /w currentpagedevice /PageSize get 0 get def
 /h currentpagedevice /PageSize get 1 get def
 
@@ -1035,7 +1105,7 @@ w 10 div h 10 div w h gridwh
 } bind def
 `)
 
-	fmt.Fprintf(ps, `
+	fmt.Fprintf(bw, `
 %% lines
 
 1 1 XValues length 1 sub {  %% i    push integer i = 1 .. length(XValues)-1 on each iteration
@@ -1062,7 +1132,7 @@ pop                     %% discard index variable
 } for
 `)
 
-	fmt.Fprintf(ps, `
+	fmt.Fprintf(bw, `
 %% dots
 
 newpath
@@ -1086,12 +1156,12 @@ pop                     %%      discard index variable
 } for
 `)
 
-	fmt.Fprintf(ps, `0 5 w 5 10 (%v - %v) horizontal_dim
+	fmt.Fprintf(bw, `0 5 w 5 10 (%v - %v) horizontal_dim
 	`, f.ixmin, f.ixmax)
-	fmt.Fprintf(ps, `5 0 5 h 20 (%v - %v) vertical_dim
+	fmt.Fprintf(bw, `5 0 5 h 20 (%v - %v) vertical_dim
 	`, f.iymin, f.iymax)
 
-	fmt.Fprintf(ps, `
+	fmt.Fprintf(bw, `
 
 showpage
 quit
@@ -1101,6 +1171,9 @@ quit
 }
 
 func (f *TabulatedFunction) canInsertPoint(x float64) bool {
+	if f.changed {
+		f.update_spline()
+	}
 	if len(f.X) == 0 {
 		return true
 	}

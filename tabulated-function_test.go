@@ -168,6 +168,233 @@ func TestTrapolationLinear(t *testing.T) {
 	}
 }
 
+func TestTrapolateDirect(t *testing.T) {
+	f := New()
+	// Test empty Trapolate
+	if !math.IsNaN(f.Trapolate(10, TrapolationLinear)) {
+		t.Errorf("Trapolate on empty function should be NaN, got %v", f.Trapolate(10, TrapolationLinear))
+	}
+
+	f.AddPoint(0, 10, 0)
+	f.AddPoint(5, 20, 0)
+	f.AddPoint(10, 30, 0)
+
+	// Exact match at left boundary (k=0)
+	if y := f.Trapolate(0, TrapolationShift); !almostEqual(y, 15.0) { // average with right neighbor: (10+20)/2
+		t.Errorf("Trapolate exact match k=0 with Shift = %v; want 15.0", y)
+	}
+	// Exact match at right boundary (k=l-1)
+	if y := f.Trapolate(10, TrapolationShift); !almostEqual(y, 25.0) { // average with left neighbor: (20+30)/2
+		t.Errorf("Trapolate exact match k=l-1 with Shift = %v; want 25.0", y)
+	}
+	// Exact match at interior knot (k=1)
+	if y := f.Trapolate(5, TrapolationShift); !almostEqual(y, 20.0) { // (f.Y[0]+f.Y[2])/2 = (10+30)/2
+		t.Errorf("Trapolate exact interior match with Shift = %v; want 20.0", y)
+	}
+}
+
+func TestInterpolateEdgeCasesAndPanic(t *testing.T) {
+	f := New()
+	f.X = []float64{1.0, 1.0} // Artificial dx = 0 to test div-by-zero guard
+	f.Y = []float64{10.0, 20.0}
+
+	// Linear with dx == 0 should return f.Y[left]
+	if y := f._interpolate(1.0, 0, 1, TrapolationLinear); !almostEqual(y, 10.0) {
+		t.Errorf("Linear interpolation with dx=0 gave %v; want 10.0", y)
+	}
+	// Cosine with dx == 0 should return f.Y[left]
+	if y := f._interpolate(1.0, 0, 1, TrapolationCosine); !almostEqual(y, 10.0) {
+		t.Errorf("Cosine interpolation with dx=0 gave %v; want 10.0", y)
+	}
+
+	// TrapolationMinMax branches
+	f2 := New()
+	f2.AddPoint(0, 0, 0)
+	f2.AddPoint(10, 10, 0)
+	_ = f2.Trapolate(5, TrapolationMinMax)
+	// Out-of-bounds indices handling in MinMax
+	yMinMax := f2._interpolate(5, -1, 5, TrapolationMinMax)
+	if math.IsNaN(yMinMax) {
+		t.Errorf("MinMax with out of bounds indices produced NaN")
+	}
+
+	// Unhandled trapolation type should panic
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("Expected panic on unhandled Trapolation type, but did not panic")
+		}
+	}()
+	_ = f2._interpolate(5, 0, 1, Trapolation(999))
+}
+
+func TestCalculusBorderCases(t *testing.T) {
+	// 1. Derivative with 0, 1, and 2 points
+	f0 := New()
+	f0.Derivative()
+	if f0.GetNdots() != 0 {
+		t.Errorf("Derivative on empty should have 0 points, got %d", f0.GetNdots())
+	}
+
+	f1 := New()
+	f1.AddPoint(1, 50, 0)
+	f1.Derivative()
+	if f1.Y[0] != 0 {
+		t.Errorf("Derivative on single point should set Y[0] = 0, got %v", f1.Y[0])
+	}
+
+	f2 := New()
+	f2.AddPoint(0, 10, 0)
+	f2.AddPoint(2, 20, 0)
+	f2.Derivative()
+	if !almostEqual(f2.Y[0], 5.0) || !almostEqual(f2.Y[1], 5.0) {
+		t.Errorf("Derivative on 2 points should yield slope 5.0, got (%v, %v)", f2.Y[0], f2.Y[1])
+	}
+
+	// 2. Integral with 0, 1, and 2 points
+	f0.Integral()
+	if f0.GetNdots() != 0 {
+		t.Errorf("Integral on empty should have 0 points, got %d", f0.GetNdots())
+	}
+	f1.Integral()
+	if f1.Y[0] != 0 {
+		t.Errorf("Integral on single point should be no-op, got %v", f1.Y[0])
+	}
+	f2Int := New()
+	f2Int.AddPoint(0, 4, 0)
+	f2Int.AddPoint(3, 4, 0)
+	f2Int.Integral() // integral of constant 4 from 0 to 3 should be [0, 12]
+	if !almostEqual(f2Int.Y[0], 0) || !almostEqual(f2Int.Y[1], 12.0) {
+		t.Errorf("Integral on 2 points = (%v, %v); want (0, 12.0)", f2Int.Y[0], f2Int.Y[1])
+	}
+
+	// 3. Integrate with n=0, 1, 2, 3, 4 and non-uniform intervals
+	if f0.Integrate() != 0 {
+		t.Errorf("Integrate on empty = %v; want 0", f0.Integrate())
+	}
+	if f1.Integrate() != 0 {
+		t.Errorf("Integrate on 1 point = %v; want 0", f1.Integrate())
+	}
+	// n = 2 (trapezoid test)
+	fTrap := New()
+	fTrap.AddPoint(0, 2, 0)
+	fTrap.AddPoint(4, 6, 0) // Area = 4 * (2+6)/2 = 16
+	if !almostEqual(fTrap.Integrate(), 16.0) {
+		t.Errorf("Integrate on 2 points = %v; want 16.0", fTrap.Integrate())
+	}
+	// n = 4 (Simpson's 3-point rule + 1 trapezoid step, non-uniform intervals)
+	fNonUniform := New()
+	fNonUniform.AddPoint(0, 0, 0)
+	fNonUniform.AddPoint(1, 1, 0)  // h1 = 1
+	fNonUniform.AddPoint(3, 9, 0)  // h2 = 2
+	fNonUniform.AddPoint(4, 16, 0) // h3 = 1 (trapezoid segment: (9+16)/2 * 1 = 12.5)
+	val := fNonUniform.Integrate()
+	if math.IsNaN(val) || val <= 0 {
+		t.Errorf("Integrate on non-uniform grid produced invalid result: %v", val)
+	}
+}
+
+func TestNormaliseBorderCases(t *testing.T) {
+	// All zeros: ym == 0, should not divide by zero or change anything
+	fZeros := New()
+	fZeros.AddPoint(0, 0, 0)
+	fZeros.AddPoint(1, 0, 0)
+	fZeros.Normalise()
+	if fZeros.Y[0] != 0 || fZeros.Y[1] != 0 {
+		t.Errorf("Normalise on all zeros altered values: %v", fZeros.Y)
+	}
+
+	// Negative maximum magnitude
+	fNeg := New()
+	fNeg.AddPoint(0, -2, 0)
+	fNeg.AddPoint(1, -10, 0)
+	fNeg.Normalise()
+	if !almostEqual(fNeg.Y[0], -0.2) || !almostEqual(fNeg.Y[1], -1.0) {
+		t.Errorf("Normalise on negative values = %v; want [-0.2, -1.0]", fNeg.Y)
+	}
+}
+
+func TestMultiplyBorderCases(t *testing.T) {
+	empty := New()
+	populated := New()
+	populated.AddPoint(0, 5, 0)
+	populated.AddPoint(1, 10, 0)
+
+	// Empty receiver
+	empty.Multiply(populated)
+	if empty.GetNdots() != 0 {
+		t.Errorf("Multiplying empty receiver resulted in %d points, want 0", empty.GetNdots())
+	}
+
+	// Multiplying populated by empty should clear receiver
+	populated.Multiply(New())
+	if populated.GetNdots() != 0 {
+		t.Errorf("Multiplying by empty did not clear receiver, got %d points", populated.GetNdots())
+	}
+}
+
+func TestCanInsertPointAndExpandBorderCases(t *testing.T) {
+	f := New()
+	if !f.canInsertPoint(5.0) {
+		t.Errorf("canInsertPoint on empty function should return true")
+	}
+
+	f.AddPoint(0, 0, 0)
+	f.AddPoint(10, 10, 0) // istep = 10
+	_ = f.GetStep()
+
+	// Inserting exactly on existing point
+	if f.canInsertPoint(0.0) || f.canInsertPoint(10.0) {
+		t.Errorf("canInsertPoint on existing knot should return false")
+	}
+	// Inserting within istep distance
+	if f.canInsertPoint(2.0) { // 2.0 - 0.0 < 10.0
+		t.Errorf("canInsertPoint within istep distance should return false")
+	}
+
+	// Expand with n <= 0
+	dotsBefore := f.GetNdots()
+	f.Expand(0)
+	if f.GetNdots() != dotsBefore {
+		t.Errorf("Expand(0) altered point count: got %d, want %d", f.GetNdots(), dotsBefore)
+	}
+}
+
+func TestDrawPSBorderCases(t *testing.T) {
+	// 1. Single point PS rendering (xRange == 0 and yRange == 0)
+	fSingle := New()
+	fSingle.AddPoint(5, 5, 0)
+	tmp1, err := os.CreateTemp("", "test_single_ps_*.ps")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmp1.Name())
+	tmp1.Close()
+
+	if err := fSingle.DrawPS(tmp1.Name()); err != nil {
+		t.Errorf("DrawPS on single point failed: %v", err)
+	}
+
+	// 2. Invalid file path
+	err = fSingle.DrawPS("/invalid_nonexistent_directory/file.ps")
+	if err == nil {
+		t.Errorf("DrawPS on invalid path should return error, got nil")
+	}
+}
+
+func TestFromDumpAndJSONBorderCases(t *testing.T) {
+	// Invalid JSON string
+	f := New()
+	if err := f.UnmarshalJSON([]byte("invalid json")); err == nil {
+		t.Errorf("UnmarshalJSON on invalid json should return error, got nil")
+	}
+
+	// String output representation
+	str := f.String()
+	if len(str) == 0 {
+		t.Errorf("String() returned empty string")
+	}
+}
+
 func TestTrapolationOpposite(t *testing.T) {
 	f := New()
 	f.SetTrapolation(TrapolationOpposite)
