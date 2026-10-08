@@ -21,11 +21,11 @@ func TestNew(t *testing.T) {
 	if f == nil {
 		t.Fatal("New() returned nil")
 	}
-	if f.Order != 3 {
-		t.Errorf("Expected default order to be 3, got %d", f.Order)
+	if f.Order != 1 {
+		t.Errorf("Expected default order to be 1, got %d", f.Order)
 	}
-	if f.Trapolation != TrapolationSpline {
-		t.Errorf("Expected default trapolation to be TrapolationSpline, got %v", f.Trapolation)
+	if f.Trapolation != TrapolationLinear {
+		t.Errorf("Expected default trapolation to be TrapolationLinear, got %v", f.Trapolation)
 	}
 	if f.GetNdots() != 0 {
 		t.Errorf("Expected new function to have 0 points, got %d", f.GetNdots())
@@ -151,37 +151,6 @@ func TestOrders(t *testing.T) {
 		}
 		if !almostEqual(f.F(1.5), 0.5) {
 			t.Errorf("F(1.5) = %v; want 0.5", f.F(1.5))
-		}
-	})
-
-	t.Run("Order 2 (Quadratic)", func(t *testing.T) {
-		q := New()
-		q.SetOrder(2)
-		q.AddPoint(0, 0, 0)
-		q.AddPoint(1, 1, 0)
-		q.AddPoint(2, 4, 0)
-
-		// Interpolating at 0.5 on y = x^2
-		if !almostEqual(q.F(0.5), 0.25) {
-			t.Errorf("Order 2 F(0.5) = %v; want 0.25", q.F(0.5))
-		}
-		if !almostEqual(q.F(1.0), 1.0) {
-			t.Errorf("Order 2 F(1.0) = %v; want 1.0", q.F(1.0))
-		}
-	})
-
-	t.Run("Order 3 (Cubic Spline)", func(t *testing.T) {
-		f.SetOrder(3)
-		// With natural spline conditions, for these points, the spline should be symmetric around x=1.
-		y1 := f.F(0.5)
-		y2 := f.F(1.5)
-		if !almostEqual(y1, y2) {
-			t.Errorf("Expected symmetry for cubic spline, F(0.5)=%v, F(1.5)=%v", y1, y2)
-		}
-		// For these points, the spline in [0,1] is S(x) = -0.5x^3 + 1.5x.
-		// So S(0.5) = -0.5*(0.125) + 1.5*0.5 = -0.0625 + 0.75 = 0.6875
-		if !almostEqual(f.F(0.5), 0.6875) {
-			t.Errorf("F(0.5) = %v; want 0.6875", f.F(0.5))
 		}
 	})
 }
@@ -363,7 +332,7 @@ func TestJSON(t *testing.T) {
 	f1 := New()
 	f1.AddPoint(0, 0, 1)
 	f1.AddPoint(1, 1, 2)
-	f1.SetOrder(2)
+	f1.SetOrder(1)
 	f1.SetTrapolation(TrapolationLinear)
 
 	jsonData, err := json.Marshal(f1)
@@ -401,27 +370,27 @@ func TestDerivativeAndIntegral(t *testing.T) {
 	f.AddPoint(0, 0, 0)
 	f.AddPoint(1, 1, 0)
 	f.AddPoint(2, 4, 0)
-	f.SetOrder(3)
+	f.SetOrder(1) // Order doesn't matter for numerical calculus methods
 
 	// Test definite integral: Integral of x^2 from -2 to 2 is 16/3
 	integral := f.Integrate()
-	// The natural cubic spline is an approximation. Its boundary conditions (second derivative is zero at endpoints)
-	// do not match the true function y=x^2 (where the second derivative is 2 everywhere).
-	// This causes a small, expected error. We relax the tolerance to account for this.
-	if math.Abs(integral-16.0/3.0) > 1e-1 {
-		t.Errorf("Spline integral of x^2 from -2 to 2 is %v, analytical is %v", integral, 16.0/3.0)
+	// Simpson's rule is exact for quadratics.
+	if !almostEqual(integral, 16.0/3.0) {
+		t.Errorf("Integral of x^2 from -2 to 2 is %v, analytical is %v", integral, 16.0/3.0)
 	}
 
 	// Test Derivative: should be approx y' = 2x
 	f.Derivative()
+	// 3-point finite difference is exact for quadratics.
 	if !almostEqual(f.F(0), 0) {
-		t.Errorf("Derivative at F(0) is %v, want ~0", f.F(0))
+		t.Errorf("Derivative at F(0) is %v, want 0", f.F(0))
 	}
-	if math.Abs(f.F(1)-2.0) > 0.5 { // Allow tolerance for spline approximation
-		t.Errorf("Derivative at F(1) is %v, want ~2.0", f.F(1))
+	if !almostEqual(f.F(1), 2.0) {
+		t.Errorf("Derivative at F(1) is %v, want 2.0", f.F(1))
 	}
 
-	// Test Integral (indefinite): should be approx y = x^2 + C
+	// Test Integral (indefinite): integral of 2x should be y = x^2 + C
+	// The trapezoidal rule used is an approximation.
 	f.Integral()
 	y_neg1 := f.F(-1)
 	y0 := f.F(0)
@@ -617,14 +586,9 @@ func TestAssign(t *testing.T) {
 	source.SetOrder(1)
 	source.SetTrapolation(TrapolationLinear)
 
-	// Force update_spline on source so that its coefficients (b, c, d) are computed
-	_ = source.GetXmin()
-
 	dest := New()
 	dest.Assign(source)
 
-	// Force update_spline on dest so that its coefficients (b, c, d)
-	// are recalculated and match the updated state of source.
 	_ = dest.GetXmin()
 
 	if dest.Order != source.Order {
@@ -639,10 +603,7 @@ func TestAssign(t *testing.T) {
 	for i := range source.X {
 		if !almostEqual(dest.X[i], source.X[i]) ||
 			!almostEqual(dest.Y[i], source.Y[i]) ||
-			dest.epoch[i] != source.epoch[i] ||
-			!almostEqual(dest.b[i], source.b[i]) ||
-			!almostEqual(dest.c[i], source.c[i]) ||
-			!almostEqual(dest.d[i], source.d[i]) {
+			dest.epoch[i] != source.epoch[i] {
 			t.Errorf("Point mismatch at index %d", i)
 		}
 	}
@@ -712,36 +673,6 @@ func TestMerge(t *testing.T) {
 	nonEmpty.Merge(New())
 	if nonEmpty.GetNdots() != 1 {
 		t.Errorf("Merge empty into non-empty altered point count: %d", nonEmpty.GetNdots())
-	}
-}
-
-func TestSinInterpolation(t *testing.T) {
-	f := New()
-	// Default is Order 3 (Cubic Spline)
-
-	// Sample sin(x) from 0 to 2*Pi
-	nPoints := 20
-	rangeMax := 2 * math.Pi
-	step := rangeMax / float64(nPoints)
-
-	for i := 0; i <= nPoints; i++ {
-		x := float64(i) * step
-		f.AddPoint(x, math.Sin(x), 0)
-	}
-
-	// Verify interpolation at intermediate points
-	for i := 0; i < nPoints; i++ {
-		x := (float64(i) + 0.5) * step
-		yExact := math.Sin(x)
-		yInterp := f.F(x)
-
-		// With 20 points over 2*Pi, step size h is approx 0.314.
-		// We expect good accuracy.
-		threshold := 1e-3
-		if math.Abs(yInterp-yExact) > threshold {
-			t.Errorf("Interpolation error at x=%.4f: got %.6f, want %.6f, diff %.6e",
-				x, yInterp, yExact, math.Abs(yInterp-yExact))
-		}
 	}
 }
 
