@@ -1,0 +1,17 @@
+{
+  "name": "tabulated-function",
+  "version": "0.1.0",
+  "description": "Tabulated function interpolation and numerical calculus library in C++23",
+  "homepage": "https://github.com/Maxime2/tabulated-function",
+  "license": "MIT",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}
