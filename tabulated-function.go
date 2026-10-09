@@ -1,7 +1,6 @@
 package tabulatedfunction
 
 import (
-	"bufio"
 	"fmt"
 	"math"
 	"os"
@@ -839,8 +838,6 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 	if err != nil {
 		return err
 	}
-	bw := bufio.NewWriter(ps)
-	defer bw.Flush()
 	defer ps.Close()
 
 	if f.changed {
@@ -851,14 +848,14 @@ func (f *TabulatedFunction) DrawPS(path string) error {
 
 	// If there are no points, draw a blank page and exit to avoid errors.
 	if len(f.X) == 0 {
-		fmt.Fprintf(bw, `%%!PS
+		fmt.Fprintf(ps, `%%!PS
 showpage
 quit
 `)
 		return nil
 	}
 
-	fmt.Fprintf(bw, `%%!PS
+	fmt.Fprintf(ps, `%%!PS
 	%% This is the color that the grid is drawn in.
 /grid_major_color {1 .6 .6} def
 /grid_color {.7 1 1} def
@@ -1039,20 +1036,15 @@ quit
 
 `)
 
-	fmt.Fprintf(bw, "/XValues [\n")
-	xRange := f.ixmax - f.ixmin
+	fmt.Fprintf(ps, "/XValues [\n")
 	for i, x := range f.X {
-		xNorm := 0.0
-		if xRange != 0 {
-			xNorm = (x - f.ixmin) / xRange
-		}
-		fmt.Fprintf(bw, " %v\t%% %v\n", xNorm, i)
+		fmt.Fprintf(ps, " %v\t%% %v\n", (x-f.ixmin)/(f.ixmax-f.ixmin), i)
 	}
-	fmt.Fprintf(bw, "] def\n")
+	fmt.Fprintf(ps, "] def\n")
 
-	fmt.Fprintf(bw, "/YValues [\n")
+	fmt.Fprintf(ps, "/YValues [\n")
 	for i, y := range f.Y {
-		fmt.Fprintf(bw, " %v\t%% %v", y, i)
+		fmt.Fprintf(ps, " %v\t%% %v", y, i)
 		if i > 0 && i < len(f.X)-1 {
 			yPrev := f.Y[i-1]
 			yNext := f.Y[i+1]
@@ -1063,35 +1055,33 @@ quit
 			dy := yNext - yPrev
 			dx1 := xCurr - xPrev
 			dx2 := xNext - xPrev
-			if dx2 != 0 {
-				val := yPrev + dy*dx1/dx2
-				fmt.Fprintf(bw, "\t%% interp: %v", val)
-			}
+			val := yPrev + dy*dx1/dx2
+			fmt.Fprintf(ps, "\t%% interp: %v", val)
 		}
-		fmt.Fprintf(bw, "\n")
+		fmt.Fprintf(ps, "\n")
 	}
-	fmt.Fprintf(bw, "] def\n")
+	fmt.Fprintf(ps, "] def\n")
 
-	fmt.Fprintf(bw, "/ColorValues [\n")
+	fmt.Fprintf(ps, "/ColorValues [\n")
 	for i, idx := range f.indices {
-		fmt.Fprintf(bw, " %v\t%% %v\n", idx, i)
+		fmt.Fprintf(ps, " %v\t%% %v\n", idx, i)
 	}
-	fmt.Fprintf(bw, "] def\n")
+	fmt.Fprintf(ps, "] def\n")
 
-	fmt.Fprintf(bw, "/MinIdx %v def\n", minIndex)
-	fmt.Fprintf(bw, "/MaxIdx %v def\n", maxIndex)
+	fmt.Fprintf(ps, "/MinIdx %v def\n", minIndex)
+	fmt.Fprintf(ps, "/MaxIdx %v def\n", maxIndex)
 
-	fmt.Fprintf(bw, "/Xmin 0 def\n")
-	fmt.Fprintf(bw, "/Xmax 1 def\n")
-	fmt.Fprintf(bw, "/Ymin %v def\n", f.iymin)
-	fmt.Fprintf(bw, "/Ymax %v def\n", f.iymax)
+	fmt.Fprintf(ps, "/Xmin 0 def\n")
+	fmt.Fprintf(ps, "/Xmax 1 def\n")
+	fmt.Fprintf(ps, "/Ymin %v def\n", f.iymin)
+	fmt.Fprintf(ps, "/Ymax %v def\n", f.iymax)
 
-	fmt.Fprintf(bw, `
+	fmt.Fprintf(ps, `
 /Xsize Xmax Xmin sub def
-/Ysize Ymax Ymin sub dup 0 eq { pop 1.0 } if def
+/Ysize Ymax Ymin sub def
 `)
 
-	fmt.Fprintf(bw, `
+	fmt.Fprintf(ps, `
 /w currentpagedevice /PageSize get 0 get def
 /h currentpagedevice /PageSize get 1 get def
 
@@ -1105,7 +1095,7 @@ w 10 div h 10 div w h gridwh
 } bind def
 `)
 
-	fmt.Fprintf(bw, `
+	fmt.Fprintf(ps, `
 %% lines
 
 1 1 XValues length 1 sub {  %% i    push integer i = 1 .. length(XValues)-1 on each iteration
@@ -1132,7 +1122,7 @@ pop                     %% discard index variable
 } for
 `)
 
-	fmt.Fprintf(bw, `
+	fmt.Fprintf(ps, `
 %% dots
 
 newpath
@@ -1156,12 +1146,12 @@ pop                     %%      discard index variable
 } for
 `)
 
-	fmt.Fprintf(bw, `0 5 w 5 10 (%v - %v) horizontal_dim
+	fmt.Fprintf(ps, `0 5 w 5 10 (%v - %v) horizontal_dim
 	`, f.ixmin, f.ixmax)
-	fmt.Fprintf(bw, `5 0 5 h 20 (%v - %v) vertical_dim
+	fmt.Fprintf(ps, `5 0 5 h 20 (%v - %v) vertical_dim
 	`, f.iymin, f.iymax)
 
-	fmt.Fprintf(bw, `
+	fmt.Fprintf(ps, `
 
 showpage
 quit
