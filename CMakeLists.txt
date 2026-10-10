@@ -15,6 +15,8 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 include(CTest)
 
+find_package(nlohmann_json CONFIG REQUIRED)
+
 add_library(tabulated-function INTERFACE)
 add_library(tabulatedfunction::tabulated-function ALIAS tabulated-function)
 
@@ -25,6 +27,11 @@ target_include_directories(tabulated-function
 )
 
 target_compile_features(tabulated-function INTERFACE cxx_std_23)
+
+target_link_libraries(tabulated-function
+    INTERFACE
+        nlohmann_json::nlohmann_json
+)
 
 install(
     TARGETS tabulated-function
@@ -46,6 +53,8 @@ install(
 
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/tabulated-function-config.cmake.in" [=[
 @PACKAGE_INIT@
+include(CMakeFindDependencyMacro)
+find_dependency(nlohmann_json CONFIG)
 include("${CMAKE_CURRENT_LIST_DIR}/tabulated-function-targets.cmake")
 check_required_components(tabulated-function)
 ]=])

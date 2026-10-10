@@ -265,6 +265,54 @@ void test_dump_and_string() {
     }
 }
 
+void test_json() {
+    TabulatedFunction f1;
+    f1.AddPoint(0, 0, 1);
+    f1.AddPoint(1, 1, 2);
+    f1.SetOrder(1);
+    f1.SetTrapolation(Trapolation::Linear);
+
+    const nlohmann::json j = f1;
+    TEST_CHECK(j["order"] == 1);
+    TEST_CHECK(j["trapolation"] == 0);
+    TEST_CHECK(j["x"].size() == 2);
+    TEST_CHECK(j["y"].size() == 2);
+    TEST_CHECK(j["epoch"].size() == 2);
+
+    const TabulatedFunction f2 = j.get<TabulatedFunction>();
+    TEST_CHECK(f1.trapolation == f2.trapolation);
+    TEST_CHECK(f1.Order == f2.Order);
+    TEST_CHECK(f1.GetNdots() == f2.GetNdots());
+    for (size_t i = 0; i < f1.GetNdots(); ++i) {
+        TEST_CHECK(almostEqual(f1.X[i], f2.X[i]));
+        TEST_CHECK(almostEqual(f1.Y[i], f2.Y[i]));
+        TEST_CHECK(f1.epoch[i] == f2.epoch[i]);
+    }
+
+    // Test Dump() method directly
+    const Dump d = f1.Dump();
+    const nlohmann::json jd = d;
+    const Dump d2 = jd.get<Dump>();
+    TEST_CHECK(d2.order == d.order);
+    TEST_CHECK(d2.trapolation == d.trapolation);
+    TEST_CHECK(d2.x == d.x);
+    TEST_CHECK(d2.y == d.y);
+    TEST_CHECK(d2.epoch == d.epoch);
+}
+
+void test_json_empty() {
+    TabulatedFunction f;
+    const nlohmann::json j = f;
+    TEST_CHECK(!j.contains("epoch")); // omitempty behavior
+    const TabulatedFunction f2 = j.get<TabulatedFunction>();
+    TEST_CHECK(f2.GetNdots() == 0);
+}
+
+void test_json_invalid() {
+    TabulatedFunction f;
+    TEST_CHECK(!f.FromJSON("invalid json"));
+}
+
 void test_trapolation_opposite() {
     TabulatedFunction f;
     f.SetTrapolation(Trapolation::Opposite);
@@ -463,6 +511,9 @@ int main() {
         {"test_can_insert_point_and_expand_border_cases", test_can_insert_point_and_expand_border_cases},
         {"test_draw_ps_border_cases", test_draw_ps_border_cases},
         {"test_dump_and_string", test_dump_and_string},
+        {"test_json", test_json},
+        {"test_json_empty", test_json_empty},
+        {"test_json_invalid", test_json_invalid},
         {"test_trapolation_opposite", test_trapolation_opposite},
         {"test_trapolation_nearest", test_trapolation_nearest},
         {"test_trapolation_cosine", test_trapolation_cosine},

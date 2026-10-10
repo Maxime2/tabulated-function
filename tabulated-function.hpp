@@ -13,8 +13,10 @@
 #include <ranges>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
+#include <nlohmann/json.hpp>
 
 namespace tabulatedfunction {
 
@@ -34,6 +36,38 @@ struct Dump {
     std::vector<double> y;
     std::vector<uint32_t> epoch;
 };
+
+inline void to_json(nlohmann::json& j, const Dump& d) {
+    j = nlohmann::json{
+        {"order", d.order},
+        {"trapolation", static_cast<int>(d.trapolation)},
+        {"x", d.x},
+        {"y", d.y}
+    };
+    if (!d.epoch.empty()) {
+        j["epoch"] = d.epoch;
+    }
+}
+
+inline void from_json(const nlohmann::json& j, Dump& d) {
+    d.order = j.value("order", 1);
+    d.trapolation = static_cast<Trapolation>(j.value("trapolation", 0));
+    if (j.contains("x") && !j["x"].is_null()) {
+        j.at("x").get_to(d.x);
+    } else {
+        d.x.clear();
+    }
+    if (j.contains("y") && !j["y"].is_null()) {
+        j.at("y").get_to(d.y);
+    } else {
+        d.y.clear();
+    }
+    if (j.contains("epoch") && !j["epoch"].is_null()) {
+        j.at("epoch").get_to(d.epoch);
+    } else {
+        d.epoch.clear();
+    }
+}
 
 class TabulatedFunction {
 public:
@@ -1043,7 +1077,7 @@ pop
         return true;
     }
 
-    void FromDump(const Dump& d) {
+    void FromDump(const tabulatedfunction::Dump& d) {
         Order = d.order;
         trapolation = d.trapolation;
 
@@ -1116,8 +1150,8 @@ pop
         update_spline();
     }
 
-    Dump ToDump() const {
-        return Dump{
+    [[nodiscard]] tabulatedfunction::Dump ToDump() const {
+        return tabulatedfunction::Dump{
             .order = Order,
             .trapolation = trapolation,
             .x = X,
@@ -1125,6 +1159,38 @@ pop
             .epoch = epoch,
         };
     }
+
+    [[nodiscard]] tabulatedfunction::Dump Dump() const {
+        return ToDump();
+    }
+
+    [[nodiscard]] std::string ToJSON() const {
+        nlohmann::json j;
+        to_json(j, ToDump());
+        return j.dump();
+    }
+
+    bool FromJSON(std::string_view json_str) {
+        try {
+            const auto j = nlohmann::json::parse(json_str);
+            tabulatedfunction::Dump d;
+            from_json(j, d);
+            FromDump(d);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
 };
+
+inline void to_json(nlohmann::json& j, const TabulatedFunction& f) {
+    to_json(j, f.ToDump());
+}
+
+inline void from_json(const nlohmann::json& j, TabulatedFunction& f) {
+    Dump d;
+    from_json(j, d);
+    f.FromDump(d);
+}
 
 } // namespace tabulatedfunction
