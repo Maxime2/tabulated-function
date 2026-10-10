@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <numbers>
 #include <numeric>
@@ -51,6 +52,16 @@ public:
     std::vector<uint32_t> indices;
     uint32_t nextIndex{1};
 
+    [[nodiscard]] static inline size_t branchless_lower_bound(const double* arr, size_t n, double target) noexcept {
+        const double* base = arr;
+        while (n > 1) {
+            const size_t half = n >> 1;
+            base = (base[half] < target) ? (base + half) : base;
+            n -= half;
+        }
+        return static_cast<size_t>(base - arr) + (*base < target ? 1 : 0);
+    }
+
     TabulatedFunction() = default;
 
     void update_spline() const {
@@ -67,32 +78,25 @@ public:
         const size_t j = n - 1;
         ixmin = X[0];
         ixmax = X[j];
-        iymin = Y[0];
-        iymax = iymin;
-        for (size_t i = 1; i <= j; ++i) {
-            if (Y[i] < iymin) {
-                iymin = Y[i];
-            }
-            if (Y[i] > iymax) {
-                iymax = Y[i];
-            }
-        }
+        const auto [min_it, max_it] = std::ranges::minmax_element(Y);
+        iymin = *min_it;
+        iymax = *max_it;
         if (j > 0) {
-            istep = X[1] - X[0];
+            double min_step = X[1] - X[0];
             for (size_t i = 2; i <= j; ++i) {
                 const double diff = X[i] - X[i - 1];
-                if (diff < istep) {
-                    istep = diff;
-                }
+                min_step = std::min(min_step, diff);
             }
+            istep = min_step;
         } else {
             istep = 0.0;
         }
     }
 
-    double _interpolate(double xi, int left, int right, Trapolation trap) const {
+    [[nodiscard]] double _interpolate(double xi, int left, int right, Trapolation trap) const {
         switch (trap) {
         case Trapolation::Linear: {
+            if (left < 0) left = 0;
             if (left == right || left < 0 || left >= static_cast<int>(X.size())) {
                 return Y[right];
             }
@@ -110,7 +114,7 @@ public:
             if (left == right || left < 0 || left >= static_cast<int>(X.size())) {
                 return GetYmin() + GetYmax() - Y[right];
             }
-            const double midpoint = (X[left] + X[right]) / 2.0;
+            const double midpoint = (X[left] + X[right]) * 0.5;
             if (xi <= midpoint) {
                 return Y[right];
             }
@@ -120,7 +124,7 @@ public:
             if (left < 0 || left >= static_cast<int>(X.size())) {
                 return Y[right];
             }
-            return (Y[left] + Y[right]) / 2.0;
+            return (Y[left] + Y[right]) * 0.5;
         }
         case Trapolation::MinMax: {
             if (left < 0) left = 0;
@@ -133,11 +137,11 @@ public:
             v[1] += std::abs(iymax - Y[left]);
             v[1] += std::abs(iymax - Y[right]);
 
-            const double avg = (Y[left] + Y[right]) / 2.0;
+            const double avg = (Y[left] + Y[right]) * 0.5;
             if (v[0] > v[1]) {
-                return (iymin + avg) / 2.0;
+                return (iymin + avg) * 0.5;
             }
-            return (iymax + avg) / 2.0;
+            return (iymax + avg) * 0.5;
         }
         case Trapolation::Nearest: {
             if (left == right || left < 0 || left >= static_cast<int>(X.size())) {
@@ -164,51 +168,49 @@ public:
         throw std::runtime_error("unhandled trapolation type");
     }
 
-    double F(double xi) const {
+    [[nodiscard]] double F(double xi) const {
         const size_t l = X.size();
-        if (l == 0) {
+        if (l == 0) [[unlikely]] {
             return std::numeric_limits<double>::quiet_NaN();
         }
-        const auto it = std::ranges::lower_bound(X, xi);
-        const int k = static_cast<int>(std::distance(X.begin(), it));
-        if (it != X.end() && *it == xi) {
+        const size_t k = branchless_lower_bound(X.data(), l, xi);
+        if (k < l && X[k] == xi) [[likely]] {
             return Y[k];
         }
 
-        int left = (k == 0) ? 0 : k - 1;
-        int right = (k >= static_cast<int>(l)) ? static_cast<int>(l) - 1 : k;
+        const int left = (k == 0) ? 0 : static_cast<int>(k) - 1;
+        const int right = (k >= l) ? static_cast<int>(l) - 1 : static_cast<int>(k);
 
         return _interpolate(xi, left, right, trapolation);
     }
 
-    double Trapolate(double xi, Trapolation customTrapolation) const {
+    [[nodiscard]] double Trapolate(double xi, Trapolation customTrapolation) const {
         const size_t l = X.size();
-        if (l == 0) {
+        if (l == 0) [[unlikely]] {
             return std::numeric_limits<double>::quiet_NaN();
         }
-        const auto it = std::ranges::lower_bound(X, xi);
-        const int k = static_cast<int>(std::distance(X.begin(), it));
-        const bool found = (it != X.end() && *it == xi);
+        const size_t k = branchless_lower_bound(X.data(), l, xi);
+        const bool found = (k < l && X[k] == xi);
 
         int left = 0;
         int right = 0;
         if (found) {
-            right = (k == static_cast<int>(l) - 1) ? k : k + 1;
-            left = (k == 0) ? k : k - 1;
+            right = (k == l - 1) ? static_cast<int>(k) : static_cast<int>(k) + 1;
+            left = (k == 0) ? static_cast<int>(k) : static_cast<int>(k) - 1;
         } else {
-            right = (k >= static_cast<int>(l)) ? static_cast<int>(l) - 1 : k;
-            left = (k == 0) ? 0 : k - 1;
+            right = (k >= l) ? static_cast<int>(l) - 1 : static_cast<int>(k);
+            left = (k == 0) ? 0 : static_cast<int>(k) - 1;
         }
 
         return _interpolate(xi, left, right, customTrapolation);
     }
 
-    void SetOrder(int new_value) {
+    void SetOrder(int new_value) noexcept {
         Order = new_value;
         changed = true;
     }
 
-    void SetTrapolation(Trapolation new_value) {
+    void SetTrapolation(Trapolation new_value) noexcept {
         trapolation = new_value;
         changed = true;
     }
@@ -241,9 +243,8 @@ public:
             return Yn;
         }
 
-        const auto it = std::ranges::lower_bound(X, Xn);
-        const size_t idx = static_cast<size_t>(std::distance(X.begin(), it));
-        if (it != X.end() && *it == Xn) {
+        const size_t idx = branchless_lower_bound(X.data(), n, Xn);
+        if (idx < n && X[idx] == Xn) {
             epoch[idx] = ep;
             const double old = Y[idx];
             Y[idx] = Yn;
@@ -251,14 +252,14 @@ public:
             return old;
         }
 
-        X.insert(it, Xn);
+        X.insert(X.begin() + idx, Xn);
         Y.insert(Y.begin() + idx, Yn);
         epoch.insert(epoch.begin() + idx, ep);
         indices.insert(indices.begin() + idx, nextIndex++);
         return Yn;
     }
 
-    void LoadConstant(double new_Y, double new_xmin, double new_xmax) {
+    void LoadConstant(double new_Y, double new_xmin, double new_xmax) noexcept {
         ixmin = new_xmin;
         ixmax = new_xmax;
         iymin = new_Y;
@@ -271,24 +272,26 @@ public:
         changed = false;
     }
 
-    void Normalise() {
+    void Normalise() noexcept {
         if (changed) update_spline();
         const double ym = std::max(std::abs(iymin), std::abs(iymax));
         if (ym > 0.0) {
+            const double inv_ym = 1.0 / ym;
             for (auto& y : Y) {
-                y /= ym;
+                y *= inv_ym;
             }
             changed = true;
         }
     }
 
-    std::pair<uint32_t, uint32_t> NormaliseIndices() {
+    std::pair<uint32_t, uint32_t> NormaliseIndices() noexcept {
         if (indices.empty()) {
             nextIndex = 1;
             return {0, 0};
         }
-        const uint32_t minIndex = *std::ranges::min_element(indices);
-        const uint32_t maxIndex = *std::ranges::max_element(indices);
+        const auto [min_it, max_it] = std::ranges::minmax_element(indices);
+        const uint32_t minIndex = *min_it;
+        const uint32_t maxIndex = *max_it;
 
         for (auto& idx : indices) {
             idx = idx - minIndex + 1;
@@ -297,15 +300,16 @@ public:
         return {1, maxIndex - minIndex + 1};
     }
 
-    void Smooth() {
+    void Smooth() noexcept {
         const size_t n = Y.size();
         if (n < 3) return;
 
+        constexpr double inv3 = 1.0 / 3.0;
         double prev = Y[0];
         double curr = Y[1];
         for (size_t i = 1; i < n - 1; ++i) {
             const double next = Y[i + 1];
-            Y[i] = (prev + curr + next) / 3.0;
+            Y[i] = (prev + curr + next) * inv3;
             prev = curr;
             curr = next;
         }
@@ -335,8 +339,8 @@ public:
                 j++;
             }
         }
-        while (i < X.size()) sortedX.push_back(X[i++]);
-        while (j < by.X.size()) sortedX.push_back(by.X[j++]);
+        sortedX.insert(sortedX.end(), X.begin() + i, X.end());
+        sortedX.insert(sortedX.end(), by.X.begin() + j, by.X.end());
 
         const size_t k = sortedX.size();
         std::vector<double> newY(k);
@@ -356,7 +360,7 @@ public:
         changed = true;
     }
 
-    void MultiplyByScalar(double by) {
+    void MultiplyByScalar(double by) noexcept {
         for (auto& y : Y) {
             y *= by;
         }
@@ -420,18 +424,15 @@ public:
                 j++;
             }
         }
-        for (; i < X.size(); ++i) {
-            newX.push_back(X[i]);
-            newY.push_back(Y[i]);
-            newEpoch.push_back(epoch[i]);
-            newIndices.push_back(indices[i]);
-        }
-        for (; j < m.X.size(); ++j) {
-            newX.push_back(m.X[j]);
-            newY.push_back(m.Y[j]);
-            newEpoch.push_back(m.epoch[j]);
-            newIndices.push_back(m.indices[j]);
-        }
+        newX.insert(newX.end(), X.begin() + i, X.end());
+        newY.insert(newY.end(), Y.begin() + i, Y.end());
+        newEpoch.insert(newEpoch.end(), epoch.begin() + i, epoch.end());
+        newIndices.insert(newIndices.end(), indices.begin() + i, indices.end());
+
+        newX.insert(newX.end(), m.X.begin() + j, m.X.end());
+        newY.insert(newY.end(), m.Y.begin() + j, m.Y.end());
+        newEpoch.insert(newEpoch.end(), m.epoch.begin() + j, m.epoch.end());
+        newIndices.insert(newIndices.end(), m.indices.begin() + j, m.indices.end());
 
         X = std::move(newX);
         Y = std::move(newY);
@@ -441,31 +442,35 @@ public:
         changed = true;
     }
 
-    double Integrate() const {
+    [[nodiscard]] double Integrate() const noexcept {
         const size_t n = X.size();
         if (n < 2) return 0.0;
         double sum = 0.0;
         size_t i = 0;
+        constexpr double inv6 = 1.0 / 6.0;
         for (; i + 2 < n; i += 2) {
             const double h1 = X[i + 1] - X[i];
             const double h2 = X[i + 2] - X[i + 1];
             if (h1 <= 0.0 || h2 <= 0.0) {
-                sum += h1 * (Y[i] + Y[i + 1]) / 2.0 + h2 * (Y[i + 1] + Y[i + 2]) / 2.0;
+                sum += h1 * (Y[i] + Y[i + 1]) * 0.5 + h2 * (Y[i + 1] + Y[i + 2]) * 0.5;
                 continue;
             }
-            const double term1 = (2.0 - h2 / h1) * Y[i];
-            const double term2 = ((h1 + h2) * (h1 + h2) / (h1 * h2)) * Y[i + 1];
-            const double term3 = (2.0 - h1 / h2) * Y[i + 2];
-            sum += (h1 + h2) / 6.0 * (term1 + term2 + term3);
+            const double inv_h1 = 1.0 / h1;
+            const double inv_h2 = 1.0 / h2;
+            const double h1_plus_h2 = h1 + h2;
+            const double term1 = (2.0 - h2 * inv_h1) * Y[i];
+            const double term2 = (h1_plus_h2 * h1_plus_h2 * (inv_h1 * inv_h2)) * Y[i + 1];
+            const double term3 = (2.0 - h1 * inv_h2) * Y[i + 2];
+            sum += h1_plus_h2 * inv6 * (term1 + term2 + term3);
         }
         if (i + 1 < n) {
             const double h = X[i + 1] - X[i];
-            sum += h * (Y[i] + Y[i + 1]) / 2.0;
+            sum += h * (Y[i] + Y[i + 1]) * 0.5;
         }
         return sum;
     }
 
-    void Clear() {
+    void Clear() noexcept {
         X.clear();
         Y.clear();
         epoch.clear();
@@ -501,7 +506,7 @@ public:
 
         for (size_t i = 0; i < numPoints - 1; ++i) {
             const double x1 = X[i], x2 = X[i + 1];
-            const double midX = (x1 + x2) / 2.0;
+            const double midX = (x1 + x2) * 0.5;
 
             newX.push_back(midX);
             newY.push_back(_interpolate(midX, static_cast<int>(i), static_cast<int>(i + 1), trapolation));
@@ -539,13 +544,14 @@ public:
             const double h1 = X[2] - X[1];
             newY[0] = -Y[0] * (2 * h0 + h1) / (h0 * (h0 + h1)) + Y[1] * (h0 + h1) / (h0 * h1) - Y[2] * h0 / (h1 * (h0 + h1));
 
+            double hPrev = h0;
             for (size_t i = 1; i < n - 1; ++i) {
-                const double hPrev = X[i] - X[i - 1];
                 const double hNext = X[i + 1] - X[i];
                 newY[i] = -Y[i - 1] * hNext / (hPrev * (hPrev + hNext)) + Y[i] * (hNext - hPrev) / (hPrev * hNext) + Y[i + 1] * hPrev / (hNext * (hPrev + hNext));
+                hPrev = hNext;
             }
 
-            const double hPrev = X[n - 2] - X[n - 3];
+            hPrev = X[n - 2] - X[n - 3];
             const double hLast = X[n - 1] - X[n - 2];
             newY[n - 1] = Y[n - 3] * hLast / (hPrev * (hPrev + hLast)) - Y[n - 2] * (hPrev + hLast) / (hPrev * hLast) + Y[n - 1] * (hPrev + 2 * hLast) / (hLast * (hPrev + hLast));
         }
@@ -553,7 +559,7 @@ public:
         changed = true;
     }
 
-    void Integral() {
+    void Integral() noexcept {
         const size_t n = X.size();
         if (n < 2) return;
         double prevY = Y[0];
@@ -561,18 +567,17 @@ public:
         for (size_t i = 1; i < n; ++i) {
             const double dx = X[i] - X[i - 1];
             const double currY = Y[i];
-            Y[i] = Y[i - 1] + (prevY + currY) / 2.0 * dx;
+            Y[i] = Y[i - 1] + (prevY + currY) * 0.5 * dx;
             prevY = currY;
         }
         changed = true;
     }
 
-    bool canInsertPoint(double x) const {
+    [[nodiscard]] bool canInsertPoint(double x) const noexcept {
         if (changed) update_spline();
         if (X.empty()) return true;
-        const auto it = std::ranges::lower_bound(X, x);
-        const size_t k = static_cast<size_t>(std::distance(X.begin(), it));
-        if (it != X.end() && *it == x) {
+        const size_t k = branchless_lower_bound(X.data(), X.size(), x);
+        if (k < X.size() && X[k] == x) {
             return false;
         }
         if (k > 0 && x - X[k - 1] < istep) {
@@ -593,7 +598,7 @@ public:
         const double v2X = ixmax + istep, v2Y = iymax;
         const uint32_t v2Epoch = epoch.back();
 
-        double midY = (iymin + iymax) / 2.0;
+        double midY = (iymin + iymax) * 0.5;
         std::vector<int> indices_list;
         std::vector<int> andices_list;
 
@@ -643,9 +648,9 @@ public:
                 }
                 if (bestIdx == -1) break;
                 const int idx1 = indices_list[bestIdx], idx2 = indices_list[bestIdx + 1];
-                const double midX = (getX(idx1) + getX(idx2)) / 2.0;
+                const double midX = (getX(idx1) + getX(idx2)) * 0.5;
                 if (canInsertPoint(midX)) {
-                    AddPoint(midX, (getY(idx1) + getY(idx2)) / 2.0, getEpoch(idx1));
+                    AddPoint(midX, (getY(idx1) + getY(idx2)) * 0.5, getEpoch(idx1));
                 }
             }
 
@@ -661,36 +666,36 @@ public:
                 }
                 if (bestIdx == -1) break;
                 const int idx1 = andices_list[bestIdx], idx2 = andices_list[bestIdx + 1];
-                const double midX = (getX(idx1) + getX(idx2)) / 2.0;
+                const double midX = (getX(idx1) + getX(idx2)) * 0.5;
                 if (canInsertPoint(midX)) {
-                    AddPoint(midX, (getY(idx1) + getY(idx2)) / 2.0, getEpoch(idx1));
+                    AddPoint(midX, (getY(idx1) + getY(idx2)) * 0.5, getEpoch(idx1));
                 }
             }
         }
         changed = true;
     }
 
-    double GetStep() const {
+    [[nodiscard]] double GetStep() const noexcept {
         if (changed) update_spline();
         return istep;
     }
-    double GetXmin() const {
+    [[nodiscard]] double GetXmin() const noexcept {
         if (changed) update_spline();
         return ixmin;
     }
-    double GetXmax() const {
+    [[nodiscard]] double GetXmax() const noexcept {
         if (changed) update_spline();
         return ixmax;
     }
-    double GetYmin() const {
+    [[nodiscard]] double GetYmin() const noexcept {
         if (changed) update_spline();
         return iymin;
     }
-    double GetYmax() const {
+    [[nodiscard]] double GetYmax() const noexcept {
         if (changed) update_spline();
         return iymax;
     }
-    size_t GetNdots() const {
+    [[nodiscard]] size_t GetNdots() const noexcept {
         return X.size();
     }
 
@@ -706,9 +711,10 @@ public:
             Order, changed, ixmin, ixmax, iymin, iymax, istep, X.size());
     }
 
-    void Epoch(uint32_t targetEpoch) {
+    void Epoch(uint32_t targetEpoch) noexcept {
         size_t w = 0;
-        for (size_t r = 0; r < X.size(); ++r) {
+        const size_t n = X.size();
+        for (size_t r = 0; r < n; ++r) {
             if (epoch[r] >= targetEpoch) {
                 if (w != r) {
                     X[w] = X[r];
@@ -924,14 +930,18 @@ public:
 
         ps << "\n/XValues [\n";
         const double xRange = (ixmax != ixmin) ? (ixmax - ixmin) : 1.0;
+        std::string buffer;
+        buffer.reserve(X.size() * 32);
         for (size_t i = 0; i < X.size(); ++i) {
-            ps << std::format(" {}\t% {}\n", (X[i] - ixmin) / xRange, i);
+            std::format_to(std::back_inserter(buffer), " {}\t% {}\n", (X[i] - ixmin) / xRange, i);
         }
+        ps << buffer;
         ps << "] def\n";
 
         ps << "/YValues [\n";
+        buffer.clear();
         for (size_t i = 0; i < Y.size(); ++i) {
-            ps << std::format(" {}\t% {}", Y[i], i);
+            std::format_to(std::back_inserter(buffer), " {}\t% {}", Y[i], i);
             if (i > 0 && i < X.size() - 1) {
                 const double yPrev = Y[i - 1];
                 const double yNext = Y[i + 1];
@@ -942,16 +952,19 @@ public:
                 const double dx1 = xCurr - xPrev;
                 const double dx2 = xNext - xPrev;
                 const double val = (dx2 != 0.0) ? (yPrev + dy * dx1 / dx2) : yPrev;
-                ps << std::format("\t% interp: {}", val);
+                std::format_to(std::back_inserter(buffer), "\t% interp: {}", val);
             }
-            ps << "\n";
+            buffer.push_back('\n');
         }
+        ps << buffer;
         ps << "] def\n";
 
         ps << "/ColorValues [\n";
+        buffer.clear();
         for (size_t i = 0; i < indices.size(); ++i) {
-            ps << std::format(" {}\t% {}\n", indices[i], i);
+            std::format_to(std::back_inserter(buffer), " {}\t% {}\n", indices[i], i);
         }
+        ps << buffer;
         ps << "] def\n";
 
         ps << std::format("/MinIdx {} def\n", minIndex);

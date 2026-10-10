@@ -76,7 +76,7 @@ void test_getters() {
     f.AddPoint(10, -5, 0);
     f.AddPoint(5, 15, 0);
 
-    f.F(1.0);
+    (void)f.F(1.0);
 
     TEST_CHECK(almostEqual(f.GetXmin(), 0.0));
     TEST_CHECK(almostEqual(f.GetXmax(), 10.0));
@@ -135,14 +135,14 @@ void test_interpolate_edge_cases_and_panic() {
     TabulatedFunction f2;
     f2.AddPoint(0, 0, 0);
     f2.AddPoint(10, 10, 0);
-    f2.Trapolate(5, Trapolation::MinMax);
+    (void)f2.Trapolate(5, Trapolation::MinMax);
 
     const double yMinMax = f2._interpolate(5, -1, 5, Trapolation::MinMax);
     TEST_CHECK(!std::isnan(yMinMax));
 
     bool threw = false;
     try {
-        f2._interpolate(5, 0, 1, static_cast<Trapolation>(999));
+        (void)f2._interpolate(5, 0, 1, static_cast<Trapolation>(999));
     } catch (const std::runtime_error&) {
         threw = true;
     }
@@ -226,7 +226,7 @@ void test_can_insert_point_and_expand_border_cases() {
 
     f.AddPoint(0, 0, 0);
     f.AddPoint(10, 10, 0);
-    f.GetStep();
+    (void)f.GetStep();
 
     TEST_CHECK(!f.canInsertPoint(0.0) && !f.canInsertPoint(10.0));
     TEST_CHECK(!f.canInsertPoint(2.0));
@@ -274,7 +274,7 @@ void test_trapolation_opposite() {
     TEST_CHECK(almostEqual(f.F(5), 20.0));
     TEST_CHECK(almostEqual(f.F(6), 10.0));
     TEST_CHECK(almostEqual(f.F(4), 20.0));
-    f.GetYmax();
+    (void)f.GetYmax();
     TEST_CHECK(almostEqual(f.F(15), 10.0));
 }
 
@@ -314,7 +314,7 @@ void test_trapolation_min_max() {
     f.SetTrapolation(Trapolation::MinMax);
     f.AddPoint(0, 0, 0);
     f.AddPoint(10, 10, 0);
-    f.F(5);
+    (void)f.F(5);
     const double y = f.F(5);
     TEST_CHECK(!std::isnan(y) && y >= 0.0 && y <= 10.0);
 }
