@@ -25,6 +25,11 @@ cmake -B build -S . \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TESTING=ON
 
+# Symlink compile_commands.json to root for VS Code / language servers
+if [ -f "build/compile_commands.json" ]; then
+    ln -sf build/compile_commands.json compile_commands.json
+fi
+
 echo "==> Building project and test suite..."
 cmake --build build --config Release
 ctest --test-dir build --output-on-failure --build-config Release
