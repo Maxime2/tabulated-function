@@ -1,3 +1,5 @@
+//go:build ignore
+
 #include "tabulated-function.hpp"
 
 #include <cmath>
