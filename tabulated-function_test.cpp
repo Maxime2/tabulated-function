@@ -496,6 +496,29 @@ void test_multiply_and_merge() {
     TEST_CHECK(almostEqual(m1.X[2], 2.0) && almostEqual(m1.Y[2], 22.0) && m1.epoch[2] == 1);
 }
 
+void test_add_point_arbitrary() {
+    TabulatedFunction direct;
+    direct.SetOrder(1);
+
+    direct.AddPoint(2.0494472732002826, 0.1, 1);
+    direct.AddPoint(1.156694013301916, 0.5, 1);
+    direct.AddPoint(0.46530775203579466, 0.1, 1);
+    direct.AddPoint(-1.1237643368175254, 0.1, 1);
+    direct.AddPoint(2.5864746065598427, 0.5, 1);
+
+    TEST_CHECK(almostEqual(direct.F(2.0494472732002826), 0.1));
+    TEST_CHECK(almostEqual(direct.F(1.156694013301916), 0.5));
+    TEST_CHECK(almostEqual(direct.F(-1.1237643368175254), 0.1));
+    TEST_CHECK(almostEqual(direct.F(2.5864746065598427), 0.5));
+    TEST_CHECK(almostEqual(direct.F(-2.0), 0.1));
+    TEST_CHECK(almostEqual(direct.F(3.0), 0.5));
+
+    // Linear interpolation between (2.0494472732002826, 0.1) and (2.5864746065598427, 0.5) at x = 2.4
+    // slope = (0.5 - 0.1) / (2.5864746065598427 - 2.0494472732002826) = 0.7448408542
+    // y = 0.1 + slope * (2.4 - 2.0494472732002826) ≈ 0.361106059244108
+    TEST_CHECK(almostEqual(direct.F(2.4), 0.361106059244108));
+}
+
 int main() {
     const std::vector<std::pair<std::string, void (*)()>> tests = {
         {"test_new", test_new},
@@ -528,6 +551,7 @@ int main() {
         {"test_epoch", test_epoch},
         {"test_smooth", test_smooth},
         {"test_multiply_and_merge", test_multiply_and_merge},
+        {"test_add_point_arbitrary", test_add_point_arbitrary},
     };
 
     int failed = 0;
