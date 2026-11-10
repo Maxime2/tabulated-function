@@ -293,6 +293,13 @@ public:
         return Yn;
     }
 
+    void Reserve(size_t cap) {
+        X.reserve(cap);
+        Y.reserve(cap);
+        epoch.reserve(cap);
+        indices.reserve(cap);
+    }
+
     void LoadConstant(double new_Y, double new_xmin, double new_xmax) noexcept {
         ixmin = new_xmin;
         ixmax = new_xmax;
@@ -411,10 +418,10 @@ public:
         trapolation = s.trapolation;
         nextIndex = s.nextIndex;
 
-        X = s.X;
-        Y = s.Y;
-        epoch = s.epoch;
-        indices = s.indices;
+        X.assign(s.X.begin(), s.X.end());
+        Y.assign(s.Y.begin(), s.Y.end());
+        epoch.assign(s.epoch.begin(), s.epoch.end());
+        indices.assign(s.indices.begin(), s.indices.end());
         changed = true;
     }
 
@@ -560,7 +567,7 @@ public:
         changed = true;
     }
 
-    void Derivative() {
+    void Derivative() noexcept {
         const size_t n = X.size();
         if (n == 0) return;
         if (n == 1) {
@@ -568,28 +575,41 @@ public:
             changed = true;
             return;
         }
-        std::vector<double> newY(n);
         if (n == 2) {
             const double slope = (Y[1] - Y[0]) / (X[1] - X[0]);
-            newY[0] = slope;
-            newY[1] = slope;
+            Y[0] = slope;
+            Y[1] = slope;
         } else {
             const double h0 = X[1] - X[0];
             const double h1 = X[2] - X[1];
-            newY[0] = -Y[0] * (2 * h0 + h1) / (h0 * (h0 + h1)) + Y[1] * (h0 + h1) / (h0 * h1) - Y[2] * h0 / (h1 * (h0 + h1));
+            const double d0 = -Y[0] * (2 * h0 + h1) / (h0 * (h0 + h1)) + Y[1] * (h0 + h1) / (h0 * h1) - Y[2] * h0 / (h1 * (h0 + h1));
+
+            const double y_last3 = Y[n - 3];
+            const double y_last2 = Y[n - 2];
+            const double y_last1 = Y[n - 1];
 
             double hPrev = h0;
+            double yPrev = Y[0];
+            double yCurr = Y[1];
+            double prevD = d0;
+
             for (size_t i = 1; i < n - 1; ++i) {
                 const double hNext = X[i + 1] - X[i];
-                newY[i] = -Y[i - 1] * hNext / (hPrev * (hPrev + hNext)) + Y[i] * (hNext - hPrev) / (hPrev * hNext) + Y[i + 1] * hPrev / (hNext * (hPrev + hNext));
+                const double yNext = Y[i + 1];
+                const double di = -yPrev * hNext / (hPrev * (hPrev + hNext)) + yCurr * (hNext - hPrev) / (hPrev * hNext) + yNext * hPrev / (hNext * (hPrev + hNext));
+                Y[i - 1] = prevD;
+                prevD = di;
+                yPrev = yCurr;
+                yCurr = yNext;
                 hPrev = hNext;
             }
 
-            hPrev = X[n - 2] - X[n - 3];
+            const double hPenult = X[n - 2] - X[n - 3];
             const double hLast = X[n - 1] - X[n - 2];
-            newY[n - 1] = Y[n - 3] * hLast / (hPrev * (hPrev + hLast)) - Y[n - 2] * (hPrev + hLast) / (hPrev * hLast) + Y[n - 1] * (hPrev + 2 * hLast) / (hLast * (hPrev + hLast));
+            const double dLast = y_last3 * hLast / (hPenult * (hPenult + hLast)) - y_last2 * (hPenult + hLast) / (hPenult * hLast) + y_last1 * (hPenult + 2 * hLast) / (hLast * (hPenult + hLast));
+            Y[n - 2] = prevD;
+            Y[n - 1] = dLast;
         }
-        Y = std::move(newY);
         changed = true;
     }
 
@@ -635,7 +655,6 @@ public:
         double midY = (iymin + iymax) * 0.5;
         std::vector<int> indices_list;
         std::vector<int> andices_list;
-
         for (int step = 0; step < n; ++step) {
             if (changed) {
                 update_spline();

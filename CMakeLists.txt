@@ -77,3 +77,16 @@ if(BUILD_TESTING)
     target_link_libraries(tabulated-function_test PRIVATE tabulated-function)
     add_test(NAME TabulatedFunctionTests COMMAND tabulated-function_test)
 endif()
+
+option(BUILD_BENCHMARKS "Build benchmarks" OFF)
+
+if(BUILD_BENCHMARKS)
+    add_executable(tabulated-function_benchmark
+        benchmark.cpp
+    )
+    target_link_libraries(tabulated-function_benchmark PRIVATE tabulated-function)
+    add_custom_target(benchmark
+        COMMAND tabulated-function_benchmark
+        COMMENT "Running tabulated-function benchmarks"
+    )
+endif()

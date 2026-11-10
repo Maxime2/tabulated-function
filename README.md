@@ -85,6 +85,21 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+### Building and Running Benchmarks
+
+To run the C++ benchmarks, enable them during CMake configuration and build the `benchmark` target:
+
+```bash
+# Configure with benchmarking enabled
+cmake -B build -S . -DBUILD_BENCHMARKS=ON
+
+# Build the benchmark executable
+cmake --build build --target benchmark
+
+# Run the benchmarks
+./build/benchmark
+```
+
 ---
 
 ## Getting Started (Go)
@@ -113,6 +128,15 @@ Run tests:
 ```bash
 go test ./... -v
 ```
+
+### Running Benchmarks
+
+Run benchmarks for all packages using the standard Go testing tool:
+
+```bash
+go test -bench=. -benchmem -run=^Benchmark.*$ ./...
+```
+
 
 ---
 

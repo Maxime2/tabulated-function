@@ -1008,3 +1008,149 @@ func TestEmptyAndSinglePointSafeguards(t *testing.T) {
 		t.Errorf("Single point extrapolation F(0) = %v; want 42.0", f.F(0))
 	}
 }
+
+func BenchmarkAddPointSequential(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f := New()
+		for j := 0; j < 1000; j++ {
+			f.AddPoint(float64(j), float64(j*10), 0)
+		}
+	}
+}
+
+func BenchmarkAddPointRandom(b *testing.B) {
+	f := New()
+	for j := 0; j < 1000; j++ {
+		f.AddPoint(float64(j)*2.0, float64(j), 0)
+	}
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		// Insert in between points, requiring binary search and slice shifting
+		x := float64(i%999)*2.0 + 1.0
+		f.AddPoint(x, x*1.5, 0)
+	}
+}
+
+func BenchmarkFEvaluation(b *testing.B) {
+	f := New()
+	for j := 0; j < 1000; j++ {
+		f.AddPoint(float64(j), math.Sin(float64(j)*0.1), 0)
+	}
+	b.ResetTimer()
+	b.ReportAllocs()
+	var sum float64
+	for i := 0; i < b.N; i++ {
+		x := float64(i % 1000) + 0.5
+		sum += f.F(x)
+	}
+	_ = sum
+}
+
+func BenchmarkTrapolateCosine(b *testing.B) {
+	f := New()
+	for j := 0; j < 1000; j++ {
+		f.AddPoint(float64(j), math.Sin(float64(j)*0.1), 0)
+	}
+	b.ResetTimer()
+	b.ReportAllocs()
+	var sum float64
+	for i := 0; i < b.N; i++ {
+		x := float64(i % 1000) + 0.5
+		sum += f.Trapolate(x, TrapolationCosine)
+	}
+	_ = sum
+}
+
+func BenchmarkIntegrate(b *testing.B) {
+	f := New()
+	for j := 0; j < 1000; j++ {
+		f.AddPoint(float64(j), float64(j*j), 0)
+	}
+	b.ResetTimer()
+	b.ReportAllocs()
+	var total float64
+	for i := 0; i < b.N; i++ {
+		total += f.Integrate()
+	}
+	_ = total
+}
+
+func BenchmarkDerivative(b *testing.B) {
+	fOrig := New()
+	for j := 0; j < 1000; j++ {
+		fOrig.AddPoint(float64(j), float64(j*j), 0)
+	}
+	f := New()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f.Assign(fOrig)
+		f.Derivative()
+	}
+}
+
+func BenchmarkSmooth(b *testing.B) {
+	fOrig := New()
+	for j := 0; j < 1000; j++ {
+		fOrig.AddPoint(float64(j), math.Sin(float64(j)), 0)
+	}
+	f := New()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f.Assign(fOrig)
+		f.Smooth()
+	}
+}
+
+func BenchmarkMorePoints(b *testing.B) {
+	fOrig := New()
+	for j := 0; j < 500; j++ {
+		fOrig.AddPoint(float64(j), float64(j*2), 0)
+	}
+	f := New()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f.Assign(fOrig)
+		f.MorePoints()
+	}
+}
+
+func BenchmarkMultiply(b *testing.B) {
+	f1Orig := New()
+	f2Orig := New()
+	for j := 0; j < 500; j++ {
+		f1Orig.AddPoint(float64(j), float64(j), 0)
+		f2Orig.AddPoint(float64(j)+0.5, float64(j*2), 0)
+	}
+	f1 := New()
+	f2 := New()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f1.Assign(f1Orig)
+		f2.Assign(f2Orig)
+		f1.Multiply(f2)
+	}
+}
+
+func BenchmarkMerge(b *testing.B) {
+	f1Orig := New()
+	f2Orig := New()
+	for j := 0; j < 500; j++ {
+		f1Orig.AddPoint(float64(j)*2.0, float64(j), 0)
+		f2Orig.AddPoint(float64(j)*2.0+1.0, float64(j*3), 0)
+	}
+	f1 := New()
+	f2 := New()
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		f1.Assign(f1Orig)
+		f2.Assign(f2Orig)
+		f1.Merge(f2)
+	}
+}
