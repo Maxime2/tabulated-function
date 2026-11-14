@@ -521,6 +521,37 @@ void test_add_point_arbitrary() {
     TEST_CHECK(almostEqual(direct.F(2.4), 0.361106059244108));
 }
 
+void test_size_limit() {
+    TabulatedFunction f;
+    TEST_CHECK(f.Size == 0);
+
+    f.SetSize(3);
+    TEST_CHECK(f.Size == 3);
+
+    f.AddPoint(0.0, 0.0, 1);
+    f.AddPoint(10.0, 10.0, 2);
+    f.AddPoint(3.0, 6.0, 3);
+    TEST_CHECK(f.GetNdots() == 3);
+
+    // Current points: (0, 0), (3, 6), (10, 10).
+    // Distances: (0 to 3) = 3, (3 to 10) = 7.
+    // Adding a 4th point at x=4.0 (Y=8.0, epoch=4) exceeds Size=3.
+    // Points before merge: (0, 0), (3, 6), (4, 8), (10, 10).
+    // Adjacent distances: 3-0 = 3, 4-3 = 1, 10-4 = 6.
+    // The closest pair is (3, 6) and (4, 8) with distance 1.
+    // Merged point: X = (3+4)/2 = 3.5, Y = (6+8)/2 = 7.0, epoch = max(3, 4) = 4.
+    f.AddPoint(4.0, 8.0, 4);
+
+    TEST_CHECK(f.GetNdots() == 3);
+    TEST_CHECK(almostEqual(f.X[0], 0.0) && almostEqual(f.Y[0], 0.0) && f.epoch[0] == 1);
+    TEST_CHECK(almostEqual(f.X[1], 3.5) && almostEqual(f.Y[1], 7.0) && f.epoch[1] == 4);
+    TEST_CHECK(almostEqual(f.X[2], 10.0) && almostEqual(f.Y[2], 10.0) && f.epoch[2] == 2);
+
+    f.SetSize(0);
+    f.AddPoint(1.0, 2.0, 5);
+    TEST_CHECK(f.GetNdots() == 4);
+}
+
 int main() {
     const std::vector<std::pair<std::string, void (*)()>> tests = {
         {"test_new", test_new},
@@ -554,6 +585,7 @@ int main() {
         {"test_smooth", test_smooth},
         {"test_multiply_and_merge", test_multiply_and_merge},
         {"test_add_point_arbitrary", test_add_point_arbitrary},
+        {"test_size_limit", test_size_limit},
     };
 
     int failed = 0;

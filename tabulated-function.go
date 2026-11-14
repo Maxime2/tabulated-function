@@ -24,6 +24,7 @@ type TabulatedFunction struct {
 	changed                    bool
 	Order                      int
 	Trapolation                Trapolation
+	Size                       int
 	X                          []float64
 	Y                          []float64
 	epoch                      []uint32
@@ -36,6 +37,7 @@ func New() *TabulatedFunction {
 	return &TabulatedFunction{
 		Order:       1,
 		Trapolation: TrapolationLinear,
+		Size:        0,
 		changed:     false,
 		nextIndex:   1,
 	}
@@ -250,6 +252,11 @@ func (f *TabulatedFunction) SetTrapolation(new_value Trapolation) {
 	f.changed = true
 }
 
+func (f *TabulatedFunction) SetSize(size int) {
+	f.Size = size
+	f.changed = true
+}
+
 func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	f.changed = true
 
@@ -261,6 +268,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 		f.epoch = append(f.epoch, epoch)
 		f.indices = append(f.indices, f.nextIndex)
 		f.nextIndex++
+		f.enforceSizeLimit()
 		return Yn
 	}
 
@@ -281,6 +289,7 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 		f.epoch = slices.Insert(f.epoch, 0, epoch)
 		f.indices = slices.Insert(f.indices, 0, f.nextIndex)
 		f.nextIndex++
+		f.enforceSizeLimit()
 		return Yn
 	}
 
@@ -300,7 +309,39 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 	f.indices = slices.Insert(f.indices, i, f.nextIndex)
 	f.nextIndex++
 
+	f.enforceSizeLimit()
 	return Yn
+}
+
+func (f *TabulatedFunction) enforceSizeLimit() {
+	for f.Size > 0 && len(f.X) > f.Size && len(f.X) >= 2 {
+		minIdx := 0
+		minDist := f.X[1] - f.X[0]
+		for i := 1; i < len(f.X)-1; i++ {
+			dist := f.X[i+1] - f.X[i]
+			if dist < minDist {
+				minDist = dist
+				minIdx = i
+			}
+		}
+
+		mergedX := (f.X[minIdx] + f.X[minIdx+1]) / 2.0
+		mergedY := (f.Y[minIdx] + f.Y[minIdx+1]) / 2.0
+		mergedEpoch := max(f.epoch[minIdx], f.epoch[minIdx+1])
+
+		f.X[minIdx] = mergedX
+		f.Y[minIdx] = mergedY
+		f.epoch[minIdx] = mergedEpoch
+		f.indices[minIdx] = f.nextIndex
+		f.nextIndex++
+
+		f.X = slices.Delete(f.X, minIdx+1, minIdx+2)
+		f.Y = slices.Delete(f.Y, minIdx+1, minIdx+2)
+		f.epoch = slices.Delete(f.epoch, minIdx+1, minIdx+2)
+		f.indices = slices.Delete(f.indices, minIdx+1, minIdx+2)
+
+		f.changed = true
+	}
 }
 
 func (f *TabulatedFunction) LoadConstant(new_Y, new_xmin, new_xmax float64) {
@@ -444,6 +485,7 @@ func (f *TabulatedFunction) Assign(s *TabulatedFunction) {
 	f.istep = s.istep
 	f.Order = s.Order
 	f.Trapolation = s.Trapolation
+	f.Size = s.Size
 	f.nextIndex = s.nextIndex
 
 	f.X = slices.Clone(s.X)

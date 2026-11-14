@@ -80,6 +80,7 @@ public:
 
     int Order{1};
     Trapolation trapolation{Trapolation::Linear};
+    size_t Size{0};
     std::vector<double> X;
     std::vector<double> Y;
     std::vector<uint32_t> epoch;
@@ -249,6 +250,11 @@ public:
         changed = true;
     }
 
+    void SetSize(size_t new_size) noexcept {
+        Size = new_size;
+        changed = true;
+    }
+
     double AddPoint(double Xn, double Yn, uint32_t ep = 0) {
         changed = true;
         const size_t n = X.size();
@@ -258,6 +264,7 @@ public:
             Y.push_back(Yn);
             epoch.push_back(ep);
             indices.push_back(nextIndex++);
+            enforceSizeLimit();
             return Yn;
         }
 
@@ -274,6 +281,7 @@ public:
             Y.insert(Y.begin(), Yn);
             epoch.insert(epoch.begin(), ep);
             indices.insert(indices.begin(), nextIndex++);
+            enforceSizeLimit();
             return Yn;
         }
 
@@ -290,7 +298,38 @@ public:
         Y.insert(Y.begin() + idx, Yn);
         epoch.insert(epoch.begin() + idx, ep);
         indices.insert(indices.begin() + idx, nextIndex++);
+        enforceSizeLimit();
         return Yn;
+    }
+
+    void enforceSizeLimit() {
+        while (Size > 0 && X.size() > Size && X.size() >= 2) {
+            size_t minIdx = 0;
+            double minDist = X[1] - X[0];
+            for (size_t i = 1; i + 1 < X.size(); ++i) {
+                const double dist = X[i + 1] - X[i];
+                if (dist < minDist) {
+                    minDist = dist;
+                    minIdx = i;
+                }
+            }
+
+            const double mergedX = (X[minIdx] + X[minIdx + 1]) * 0.5;
+            const double mergedY = (Y[minIdx] + Y[minIdx + 1]) * 0.5;
+            const uint32_t mergedEpoch = std::max(epoch[minIdx], epoch[minIdx + 1]);
+
+            X[minIdx] = mergedX;
+            Y[minIdx] = mergedY;
+            epoch[minIdx] = mergedEpoch;
+            indices[minIdx] = nextIndex++;
+
+            X.erase(X.begin() + minIdx + 1);
+            Y.erase(Y.begin() + minIdx + 1);
+            epoch.erase(epoch.begin() + minIdx + 1);
+            indices.erase(indices.begin() + minIdx + 1);
+
+            changed = true;
+        }
     }
 
     void Reserve(size_t cap) {
@@ -416,6 +455,7 @@ public:
         istep = s.istep;
         Order = s.Order;
         trapolation = s.trapolation;
+        Size = s.Size;
         nextIndex = s.nextIndex;
 
         X.assign(s.X.begin(), s.X.end());

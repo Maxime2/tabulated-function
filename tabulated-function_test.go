@@ -1009,6 +1009,47 @@ func TestEmptyAndSinglePointSafeguards(t *testing.T) {
 	}
 }
 
+func TestSizeLimit(t *testing.T) {
+	f := New()
+	if f.Size != 0 {
+		t.Fatalf("Expected default Size to be 0, got %d", f.Size)
+	}
+
+	f.SetSize(3)
+	if f.Size != 3 {
+		t.Fatalf("Expected Size to be 3, got %d", f.Size)
+	}
+
+	f.AddPoint(0.0, 0.0, 1)
+	f.AddPoint(10.0, 10.0, 2)
+	f.AddPoint(3.0, 6.0, 3)
+	if f.GetNdots() != 3 {
+		t.Fatalf("Expected 3 points before limit hit, got %d", f.GetNdots())
+	}
+
+	// Adding (4, 8) exceeds limit 3. Closest pair is (3, 6) and (4, 8) with distance 1.
+	// Merged point: (3.5, 7.0), epoch 4.
+	f.AddPoint(4.0, 8.0, 4)
+	if f.GetNdots() != 3 {
+		t.Fatalf("Expected point count to remain 3 after merge, got %d", f.GetNdots())
+	}
+	if !almostEqual(f.X[0], 0.0) || !almostEqual(f.Y[0], 0.0) || f.epoch[0] != 1 {
+		t.Errorf("Point 0 mismatch: got (%v, %v, ep %v), want (0.0, 0.0, ep 1)", f.X[0], f.Y[0], f.epoch[0])
+	}
+	if !almostEqual(f.X[1], 3.5) || !almostEqual(f.Y[1], 7.0) || f.epoch[1] != 4 {
+		t.Errorf("Point 1 mismatch: got (%v, %v, ep %v), want (3.5, 7.0, ep 4)", f.X[1], f.Y[1], f.epoch[1])
+	}
+	if !almostEqual(f.X[2], 10.0) || !almostEqual(f.Y[2], 10.0) || f.epoch[2] != 2 {
+		t.Errorf("Point 2 mismatch: got (%v, %v, ep %v), want (10.0, 10.0, ep 2)", f.X[2], f.Y[2], f.epoch[2])
+	}
+
+	f.SetSize(0)
+	f.AddPoint(1.0, 2.0, 5)
+	if f.GetNdots() != 4 {
+		t.Errorf("Expected 4 points when limit removed, got %d", f.GetNdots())
+	}
+}
+
 func BenchmarkAddPointSequential(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -1042,7 +1083,7 @@ func BenchmarkFEvaluation(b *testing.B) {
 	b.ReportAllocs()
 	var sum float64
 	for i := 0; i < b.N; i++ {
-		x := float64(i % 1000) + 0.5
+		x := float64(i%1000) + 0.5
 		sum += f.F(x)
 	}
 	_ = sum
@@ -1057,7 +1098,7 @@ func BenchmarkTrapolateCosine(b *testing.B) {
 	b.ReportAllocs()
 	var sum float64
 	for i := 0; i < b.N; i++ {
-		x := float64(i % 1000) + 0.5
+		x := float64(i%1000) + 0.5
 		sum += f.Trapolate(x, TrapolationCosine)
 	}
 	_ = sum
