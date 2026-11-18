@@ -315,14 +315,26 @@ func (f *TabulatedFunction) AddPoint(Xn, Yn float64, epoch uint32) float64 {
 
 func (f *TabulatedFunction) enforceSizeLimit() {
 	for f.Size > 0 && len(f.X) > f.Size && len(f.X) >= 2 {
+		minEpoch := slices.Min(f.epoch)
 		minIdx := 0
-		minDist := f.X[1] - f.X[0]
-		for i := 1; i < len(f.X)-1; i++ {
+		minDist := math.Inf(1)
+		found := false
+
+		for i := 0; i < len(f.X)-1; i++ {
+			if f.epoch[i] != minEpoch && f.epoch[i+1] != minEpoch {
+				continue
+			}
 			dist := f.X[i+1] - f.X[i]
-			if dist < minDist {
+			if !found || dist < minDist {
 				minDist = dist
 				minIdx = i
+				found = true
 			}
+		}
+
+		if !found {
+			// Fallback in case no pair matched criteria
+			minIdx = 0
 		}
 
 		mergedX := (f.X[minIdx] + f.X[minIdx+1]) / 2.0

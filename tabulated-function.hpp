@@ -304,14 +304,26 @@ public:
 
     void enforceSizeLimit() {
         while (Size > 0 && X.size() > Size && X.size() >= 2) {
+            const uint32_t minEpoch = *std::ranges::min_element(epoch);
             size_t minIdx = 0;
-            double minDist = X[1] - X[0];
-            for (size_t i = 1; i + 1 < X.size(); ++i) {
+            double minDist = std::numeric_limits<double>::infinity();
+            bool found = false;
+
+            for (size_t i = 0; i + 1 < X.size(); ++i) {
+                if (epoch[i] != minEpoch && epoch[i + 1] != minEpoch) {
+                    continue;
+                }
                 const double dist = X[i + 1] - X[i];
-                if (dist < minDist) {
+                if (!found || dist < minDist) {
                     minDist = dist;
                     minIdx = i;
+                    found = true;
                 }
+            }
+
+            if (!found) {
+                // Fallback in case no pair matched criteria
+                minIdx = 0;
             }
 
             const double mergedX = (X[minIdx] + X[minIdx + 1]) * 0.5;
